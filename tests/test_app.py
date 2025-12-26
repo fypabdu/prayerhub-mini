@@ -27,6 +27,20 @@ api:
 audio:
   test_audio: "{test_audio_path}"
   connected_tone: "data/audio/connected.mp3"
+  adhan:
+    fajr: "data/audio/adhan_fajr.mp3"
+    dhuhr: "data/audio/adhan_dhuhr.mp3"
+    asr: "data/audio/adhan_asr.mp3"
+    maghrib: "data/audio/adhan_maghrib.mp3"
+    isha: "data/audio/adhan_isha.mp3"
+  quran_schedule:
+    - time: "06:30"
+      file: "data/audio/quran_morning.mp3"
+  notifications:
+    sunrise: "data/audio/sunrise.mp3"
+    sunset: "data/audio/sunset.mp3"
+    midnight: "data/audio/midnight.mp3"
+    tahajjud: "data/audio/tahajjud.mp3"
   volumes:
     master_percent: 60
     adhan_percent: 85
@@ -52,9 +66,29 @@ control_panel:
 """
 
 
+def _seed_audio_files(root: Path) -> None:
+    audio_dir = root / "data" / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    for name in [
+        "connected.mp3",
+        "adhan_fajr.mp3",
+        "adhan_dhuhr.mp3",
+        "adhan_asr.mp3",
+        "adhan_maghrib.mp3",
+        "adhan_isha.mp3",
+        "quran_morning.mp3",
+        "sunrise.mp3",
+        "sunset.mp3",
+        "midnight.mp3",
+        "tahajjud.mp3",
+    ]:
+        (audio_dir / name).write_bytes(b"beep")
+
+
 def test_app_respects_prayerhub_config_dir(tmp_path: Path, monkeypatch) -> None:
     test_audio = tmp_path / "test_beep.mp3"
     test_audio.write_bytes(b"beep")
+    _seed_audio_files(tmp_path)
     _write_yaml(tmp_path / "config.yml", _base_config("test_beep.mp3"))
 
     monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
@@ -69,6 +103,7 @@ def test_app_respects_prayerhub_config_dir(tmp_path: Path, monkeypatch) -> None:
 def test_app_uses_explicit_config_path(tmp_path: Path, monkeypatch) -> None:
     test_audio = tmp_path / "test_beep.mp3"
     test_audio.write_bytes(b"beep")
+    _seed_audio_files(tmp_path)
     config_path = tmp_path / "custom.yml"
     _write_yaml(config_path, _base_config("test_beep.mp3"))
 
@@ -82,6 +117,7 @@ def test_app_uses_explicit_config_path(tmp_path: Path, monkeypatch) -> None:
 
 def test_app_exits_cleanly_on_config_error(tmp_path: Path, monkeypatch) -> None:
     _write_yaml(tmp_path / "config.yml", _base_config("missing.mp3"))
+    _seed_audio_files(tmp_path)
 
     monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
     monkeypatch.setenv("PRAYERHUB_CACHE_DIR", str(tmp_path / "cache"))

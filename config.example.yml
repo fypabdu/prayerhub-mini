@@ -12,6 +12,20 @@ api:
 audio:
   test_audio: "data/audio/test_beep.mp3"
   connected_tone: "data/audio/connected.mp3"
+  adhan:
+    fajr: "data/audio/adhan_fajr.mp3"
+    dhuhr: "data/audio/adhan_dhuhr.mp3"
+    asr: "data/audio/adhan_asr.mp3"
+    maghrib: "data/audio/adhan_maghrib.mp3"
+    isha: "data/audio/adhan_isha.mp3"
+  quran_schedule:
+    - time: "06:30"
+      file: "data/audio/quran_morning.mp3"
+  notifications:
+    sunrise: "data/audio/sunrise.mp3"
+    sunset: "data/audio/sunset.mp3"
+    midnight: "data/audio/midnight.mp3"
+    tahajjud: "data/audio/tahajjud.mp3"
   volumes:
     master_percent: 60
     adhan_percent: 85

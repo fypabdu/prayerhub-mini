@@ -42,6 +42,9 @@ class AudioVolumes:
 class AudioConfig:
     test_audio: str
     connected_tone: str
+    adhan: "AdhanAudio"
+    quran_schedule: tuple["QuranScheduleItem", ...]
+    notifications: "NotificationAudio"
     volumes: AudioVolumes
 
 
@@ -70,6 +73,29 @@ class ControlPanelConfig:
     port: int
     auth: ControlPanelAuthConfig
     test_scheduler: ControlPanelTestSchedulerConfig
+
+
+@dataclass(frozen=True)
+class AdhanAudio:
+    fajr: str
+    dhuhr: str
+    asr: str
+    maghrib: str
+    isha: str
+
+
+@dataclass(frozen=True)
+class QuranScheduleItem:
+    time: str
+    file: str
+
+
+@dataclass(frozen=True)
+class NotificationAudio:
+    sunrise: str
+    sunset: str
+    midnight: str
+    tahajjud: str
 
 
 @dataclass(frozen=True)
@@ -179,9 +205,31 @@ class ConfigLoader:
             notification_percent=int(volumes_data["notification_percent"]),
             test_percent=int(volumes_data["test_percent"]),
         )
+        adhan_data = audio_data["adhan"]
+        adhan = AdhanAudio(
+            fajr=adhan_data["fajr"],
+            dhuhr=adhan_data["dhuhr"],
+            asr=adhan_data["asr"],
+            maghrib=adhan_data["maghrib"],
+            isha=adhan_data["isha"],
+        )
+        quran_schedule = tuple(
+            QuranScheduleItem(time=item["time"], file=item["file"])
+            for item in audio_data.get("quran_schedule", [])
+        )
+        notifications_data = audio_data["notifications"]
+        notifications = NotificationAudio(
+            sunrise=notifications_data["sunrise"],
+            sunset=notifications_data["sunset"],
+            midnight=notifications_data["midnight"],
+            tahajjud=notifications_data["tahajjud"],
+        )
         audio = AudioConfig(
             test_audio=audio_data["test_audio"],
             connected_tone=audio_data["connected_tone"],
+            adhan=adhan,
+            quran_schedule=quran_schedule,
+            notifications=notifications,
             volumes=volumes,
         )
         bluetooth = BluetoothConfig(
@@ -217,11 +265,28 @@ class ConfigLoader:
         self._validate_control_panel(config.control_panel)
 
     def _validate_audio_paths(self, audio: AudioConfig) -> None:
-        test_audio_path = Path(audio.test_audio)
-        if not test_audio_path.is_absolute():
-            test_audio_path = Path.cwd() / test_audio_path
-        if not test_audio_path.exists():
-            raise ConfigError(f"Test audio file does not exist: {test_audio_path}")
+        audio_paths = [
+            ("test_audio", audio.test_audio),
+            ("connected_tone", audio.connected_tone),
+            ("adhan_fajr", audio.adhan.fajr),
+            ("adhan_dhuhr", audio.adhan.dhuhr),
+            ("adhan_asr", audio.adhan.asr),
+            ("adhan_maghrib", audio.adhan.maghrib),
+            ("adhan_isha", audio.adhan.isha),
+            ("notification_sunrise", audio.notifications.sunrise),
+            ("notification_sunset", audio.notifications.sunset),
+            ("notification_midnight", audio.notifications.midnight),
+            ("notification_tahajjud", audio.notifications.tahajjud),
+        ]
+        for item in audio.quran_schedule:
+            audio_paths.append((f"quran_{item.time}", item.file))
+
+        for label, path_str in audio_paths:
+            path = Path(path_str)
+            if not path.is_absolute():
+                path = Path.cwd() / path
+            if not path.exists():
+                raise ConfigError(f"Audio file does not exist ({label}): {path}")
 
     def _validate_volumes(self, volumes: AudioVolumes) -> None:
         for name, value in vars(volumes).items():

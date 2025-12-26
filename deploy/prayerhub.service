@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=pi
 WorkingDirectory=/opt/prayerhub
 ExecStart=/opt/prayerhub/.venv/bin/python -m prayerhub
 Restart=always

@@ -12,6 +12,7 @@ from prayerhub.logging_utils import LoggerFactory
 from prayerhub.prayer_api import PrayerApiClient
 from prayerhub.prayer_times import PrayerTimeService
 from prayerhub.scheduler import JobScheduler
+from prayerhub.startup import schedule_from_cache, schedule_refresh
 from prayerhub.test_scheduler import TestScheduleService
 
 
@@ -95,6 +96,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         logger.info("Dry-run mode enabled; no audio will play.")
         logger.info("Scheduled jobs: %s", scheduler.get_jobs())
         return 0
+
+    schedule_from_cache(cache_store, job_scheduler)
+    schedule_refresh(job_scheduler, prayer_service, config.api.prefetch_days)
 
     if config.control_panel.enabled:
         from prayerhub.control_panel import ControlPanelServer

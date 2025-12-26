@@ -39,6 +39,24 @@ class AudioRouter:
         # No backend detected, so we can't set volume in a predictable way.
         self._logger.warning("No audio backend available for volume control")
 
+    def ensure_default_sink(self, *, timeout_seconds: int = 3) -> None:
+        if self._backend == "pipewire":
+            # Best-effort re-assertion of the default sink after Bluetooth connects.
+            self.runner.run(
+                ["wpctl", "set-default", "@DEFAULT_AUDIO_SINK@"],
+                timeout=timeout_seconds,
+            )
+            return
+        if self._backend == "pulseaudio":
+            self.runner.run(
+                ["pactl", "set-default-sink", "@DEFAULT_SINK@"],
+                timeout=timeout_seconds,
+            )
+            return
+
+        # Keep behavior explicit when no backend exists; callers may log further.
+        self._logger.warning("No audio backend available to ensure default sink")
+
     def _detect_backend(self) -> Optional[str]:
         # Prefer PipeWire when present because it is the default on Bookworm.
         if self.runner.which("wpctl"):

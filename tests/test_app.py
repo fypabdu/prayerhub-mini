@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from prayerhub.app import main
+
+
+def _write_yaml(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _base_config(test_audio_path: str) -> str:
+    return f"""
+location:
+  city: "colombo"
+  madhab: "shafi"
+  timezone: "Asia/Colombo"
+
+api:
+  base_url: "http://example.com"
+  timeout_seconds: 8
+  max_retries: 4
+  prefetch_days: 7
+
+audio:
+  test_audio: "{test_audio_path}"
+  connected_tone: "data/audio/connected.mp3"
+  volumes:
+    master_percent: 60
+    adhan_percent: 85
+    fajr_adhan_percent: 60
+    quran_percent: 55
+    notification_percent: 50
+    test_percent: 70
+
+bluetooth:
+  device_mac: "AA:BB:CC:DD:EE:FF"
+  ensure_default_sink: true
+
+control_panel:
+  enabled: false
+  host: "0.0.0.0"
+  port: 8080
+  auth:
+    username: "admin"
+    password_hash: "pbkdf2:sha256:..."
+  test_scheduler:
+    max_pending_tests: 10
+    max_minutes_ahead: 1440
+"""
+
+
+def test_app_respects_prayerhub_config_dir(tmp_path: Path, monkeypatch) -> None:
+    test_audio = tmp_path / "test_beep.mp3"
+    test_audio.write_bytes(b"beep")
+    _write_yaml(tmp_path / "config.yml", _base_config("test_beep.mp3"))
+
+    monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("PRAYERHUB_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["--dry-run"])
+
+    assert exit_code == 0
+
+
+def test_app_uses_explicit_config_path(tmp_path: Path, monkeypatch) -> None:
+    test_audio = tmp_path / "test_beep.mp3"
+    test_audio.write_bytes(b"beep")
+    config_path = tmp_path / "custom.yml"
+    _write_yaml(config_path, _base_config("test_beep.mp3"))
+
+    monkeypatch.setenv("PRAYERHUB_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["--config", str(config_path), "--dry-run"])
+
+    assert exit_code == 0
+
+
+def test_app_exits_cleanly_on_config_error(tmp_path: Path, monkeypatch) -> None:
+    _write_yaml(tmp_path / "config.yml", _base_config("missing.mp3"))
+
+    monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("PRAYERHUB_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["--dry-run"])
+
+    assert exit_code != 0

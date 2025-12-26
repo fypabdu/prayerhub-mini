@@ -108,12 +108,13 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
 
 
 class ConfigLoader:
-    def __init__(self, root_dir: Path | None = None) -> None:
+    def __init__(self, root_dir: Path | None = None, config_path: Path | None = None) -> None:
         self._root_dir = root_dir
+        self._config_path = config_path
 
     def load(self) -> AppConfig:
         root_dir = self._resolve_root_dir()
-        config_path = root_dir / "config.yml"
+        config_path = self._resolve_config_path(root_dir)
         if not config_path.exists():
             raise ConfigError(f"Missing base config file: {config_path}")
 
@@ -136,10 +137,17 @@ class ConfigLoader:
     def _resolve_root_dir(self) -> Path:
         if self._root_dir is not None:
             return self._root_dir
+        if self._config_path is not None:
+            return self._config_path.parent
         env_dir = os.getenv("PRAYERHUB_CONFIG_DIR")
         if env_dir:
             return Path(env_dir)
         return Path("/etc/prayerhub")
+
+    def _resolve_config_path(self, root_dir: Path) -> Path:
+        if self._config_path is not None:
+            return self._config_path
+        return root_dir / "config.yml"
 
     def _build_config(self, data: Dict[str, Any]) -> AppConfig:
         try:

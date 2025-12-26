@@ -690,6 +690,156 @@ Rules for every ticket:
 
 ---
 
+### T12 - App composition + CLI entrypoint
+**Estimate:** 55 min  
+**Depends on:** T2..T11  
+**Context7 topics:**  
+- argparse basics  
+- Python logging setup  
+
+**TDD**
+- app loads config from default path and respects `PRAYERHUB_CONFIG_DIR`
+- `--dry-run` starts scheduler without playing audio
+- app exits cleanly on config validation error
+
+**Steps**
+1. Add `prayerhub.app` module with `main()` and `python -m prayerhub.app` support.
+2. Compose ConfigLoader, LoggerFactory, CacheStore, PrayerApiClient, PrayerTimeService, JobScheduler, TestScheduleService, and ControlPanelServer.
+3. Wire a dry-run flag that schedules jobs but no-ops audio playback.
+4. Document the entry point in `README.md`.
+
+**Pitfalls**
+- Avoid importing Flask or APScheduler at module import time; only within `main()`.
+
+**Definition of Done**
+- `python -m prayerhub.app --config ./config.yml --dry-run` runs without errors and lists scheduled jobs.
+
+---
+
+### T13 - Audio asset config + validation
+**Estimate:** 45 min  
+**Depends on:** T2, T5  
+**Context7 topics:**  
+- dataclasses validation  
+- pathlib  
+
+**TDD**
+- missing adhan or quran audio files fail validation
+- volume percent out of range fails validation (adhans + quran + notifications)
+
+**Steps**
+1. Extend config schema to include:
+   - adhan audio per prayer (fajr, dhuhr, asr, maghrib, isha)
+   - quran schedule list with time + file
+   - notification audio mapping (sunrise, sunset, midnight, tahajjud)
+2. Validate that required files exist (relative to app working dir).
+3. Update `config.example.yml` with placeholders.
+
+**Pitfalls**
+- Keep list merging consistent: config overlays replace lists.
+
+**Definition of Done**
+- Config validation fails fast on missing required audio files.
+
+---
+
+### T14 - Playback handlers + Bluetooth reconnect rule
+**Estimate:** 55 min  
+**Depends on:** T5, T6, T7, T13  
+**Context7 topics:**  
+- APScheduler job handlers  
+- subprocess timeout handling  
+
+**TDD**
+- handler attempts one Bluetooth reconnect on disconnect then skips
+- handler never raises exceptions to the scheduler thread
+- handler respects no-overlap lock in AudioPlayer
+
+**Steps**
+1. Implement a job handler for adhan/quran/notification events.
+2. On fire: ensure Bluetooth is connected, set volume per event, play audio.
+3. If Bluetooth is down: attempt one reconnect; if still down, log and skip.
+
+**Pitfalls**
+- Do not let handler exceptions bubble; always log and return.
+
+**Definition of Done**
+- On device, a scheduled adhan plays with the correct volume and reconnect logic.
+
+---
+
+### T15 - Control panel status + controls
+**Estimate:** 60 min  
+**Depends on:** T9, T14  
+**Context7 topics:**  
+- Flask templates  
+- Werkzeug auth  
+
+**TDD**
+- dashboard shows next events and pending test jobs
+- `/controls` volume up/down triggers router
+- `/controls` play-now triggers test audio
+
+**Steps**
+1. Extend dashboard with status, next scheduled events, and a log tail.
+2. Add `/controls` actions for volume up/down and play-now adhan/quran.
+3. Optional: support token header for curl automation.
+
+**Pitfalls**
+- Never log passwords or tokens.
+
+**Definition of Done**
+- Control panel shows status and can trigger audio/volume actions.
+
+---
+
+### T16 - Startup flow: cache-first schedule + background refresh
+**Estimate:** 45 min  
+**Depends on:** T4, T7, T12  
+**Context7 topics:**  
+- threading  
+- APScheduler coalesce/misfire  
+
+**TDD**
+- startup schedules jobs from cache without network
+- refresh job updates cache then reschedules today/tomorrow
+
+**Steps**
+1. On app start, read cached DayPlans and schedule future jobs.
+2. Refresh in background and reschedule when new data arrives.
+3. Ensure scheduler jobs remain idempotent (no duplicates).
+
+**Pitfalls**
+- Avoid scheduling past events after refresh.
+
+**Definition of Done**
+- Offline restart still produces a valid schedule from cache.
+
+---
+
+### T17 - Bundle assets + install docs
+**Estimate:** 40 min  
+**Depends on:** T13, T10  
+**Context7 topics:**  
+- zip packaging  
+- bash idempotency  
+
+**TDD**
+- bundle includes audio assets in `data/audio/`
+
+**Steps**
+1. Add `data/audio/test_beep.mp3` and `data/audio/connected.mp3` (small files).
+2. Update `deploy/build_bundle.sh` to include `data/audio/`.
+3. Update `README_INSTALL.md` with exact device steps and file locations.
+
+**Pitfalls**
+- Keep audio files small to avoid heavy artifacts.
+
+**Definition of Done**
+- CI artifact contains audio assets and install steps are clear.
+
+---
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

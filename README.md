@@ -22,6 +22,12 @@ pip install -r requirements.txt
 pytest -q
 ```
 
+## Run (dry-run)
+
+```bash
+python -m prayerhub.app --config ./config.yml --dry-run
+```
+
 ## End-to-end validation checklist (manual)
 
 - boot device and confirm `prayerhub` service is active

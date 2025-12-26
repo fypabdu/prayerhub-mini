@@ -22,6 +22,19 @@ pip install -r requirements.txt
 pytest -q
 ```
 
+## End-to-end validation checklist (manual)
+
+- boot device and confirm `prayerhub` service is active
+- login to the control panel and schedule a test audio in 2 minutes
+- hear test audio from the Bluetooth speaker
+- disable Wi-Fi, restart service, and confirm it still schedules from cache
+
+## Smoke test
+
+```bash
+pytest -m smoke -q
+```
+
 ## Build install bundle
 
 ```bash

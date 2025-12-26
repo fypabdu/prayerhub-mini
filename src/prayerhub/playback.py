@@ -34,6 +34,11 @@ class PlaybackHandler:
             return False
 
     def _select_audio(self, event_name: str) -> Optional[tuple[Path, int]]:
+        if event_name == "test_audio":
+            return (
+                self._resolve(self._audio.test_audio),
+                self._audio.volumes.test_percent,
+            )
         if event_name == "fajr":
             return (
                 self._resolve(self._audio.adhan.fajr),

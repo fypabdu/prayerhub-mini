@@ -83,10 +83,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         handler=job_handler,
     )
 
+    test_handler = _make_noop_test_handler(logger, dry_run=args.dry_run)
+    if play_handler is not None:
+        test_handler = lambda: play_handler("test_audio")
+
     test_scheduler = TestScheduleService(
         scheduler=scheduler,
         now_provider=job_scheduler.now_provider,
-        handler=_make_noop_test_handler(logger, dry_run=args.dry_run),
+        handler=test_handler,
         max_pending_tests=config.control_panel.test_scheduler.max_pending_tests,
         max_minutes_ahead=config.control_panel.test_scheduler.max_minutes_ahead,
     )

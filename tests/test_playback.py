@@ -129,6 +129,24 @@ def test_handler_plays_quran_when_matching_time(tmp_path: Path, monkeypatch) -> 
     assert player.calls == [(audio_dir / "quran_morning.mp3", 55)]
 
 
+def test_handler_plays_test_audio_with_test_volume(tmp_path: Path, monkeypatch) -> None:
+    audio_dir = tmp_path / "data" / "audio"
+    audio_dir.mkdir(parents=True)
+    (audio_dir / "test_beep.mp3").write_bytes(b"beep")
+    monkeypatch.chdir(tmp_path)
+
+    bluetooth = FakeBluetooth(connected=True)
+    player = FakePlayer()
+    handler = PlaybackHandler(
+        bluetooth=bluetooth,
+        player=player,
+        audio=_audio_config(),
+    )
+
+    assert handler.handle_event("test_audio") is True
+    assert player.calls == [(audio_dir / "test_beep.mp3", 70)]
+
+
 def test_handler_catches_player_errors(tmp_path: Path, monkeypatch) -> None:
     audio_dir = tmp_path / "data" / "audio"
     audio_dir.mkdir(parents=True)

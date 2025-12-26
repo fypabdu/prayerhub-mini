@@ -110,9 +110,53 @@ def test_app_uses_explicit_config_path(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("PRAYERHUB_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.chdir(tmp_path)
 
-    exit_code = main(["--config", str(config_path), "--dry-run"])
+    exit_code = main(["--config", str(config_path)])
 
     assert exit_code == 0
+
+
+def test_scheduler_starts_with_control_panel_enabled(tmp_path: Path, monkeypatch) -> None:
+    test_audio = tmp_path / "test_beep.mp3"
+    test_audio.write_bytes(b"beep")
+    _seed_audio_files(tmp_path)
+    config_path = tmp_path / "config.yml"
+    _write_yaml(config_path, _base_config("test_beep.mp3").replace("enabled: false", "enabled: true"))
+
+    monkeypatch.setenv("PRAYERHUB_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.chdir(tmp_path)
+
+    started = {"value": False}
+
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.running = False
+
+        def start(self, paused: bool = False) -> None:
+            self.running = True
+            started["value"] = True
+
+        def add_job(self, *args, **kwargs):
+            return None
+
+    class FakeServer:
+        def __init__(self) -> None:
+            self.app = self
+            self.host = "0.0.0.0"
+            self.port = 8080
+
+        def run(self, host: str, port: int) -> None:
+            return None
+
+    monkeypatch.setenv("PRAYERHUB_SECRET_KEY", "test")
+    monkeypatch.setattr(
+        "apscheduler.schedulers.background.BackgroundScheduler", FakeScheduler
+    )
+    monkeypatch.setattr("prayerhub.control_panel.ControlPanelServer", lambda **_: FakeServer())
+
+    exit_code = main(["--config", str(config_path)])
+
+    assert exit_code == 0
+    assert started["value"] is True
 
 
 def test_app_exits_cleanly_on_config_error(tmp_path: Path, monkeypatch) -> None:

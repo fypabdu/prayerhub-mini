@@ -127,6 +127,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             play_handler=play_handler,
             log_path=log_path,
         )
+        scheduler.start()
         logger.info("Starting control panel on %s:%s", server.host, server.port)
         server.app.run(host=server.host, port=server.port)
     else:

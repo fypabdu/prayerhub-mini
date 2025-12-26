@@ -47,6 +47,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
     scheduler = BackgroundScheduler()
     job_handler = _make_noop_handler(logger, dry_run=args.dry_run)
+    audio_router = None
+    play_handler = None
     if not args.dry_run:
         from prayerhub.audio import AudioPlayer, AudioRouter
         from prayerhub.bluetooth import BluetoothManager
@@ -67,6 +69,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             player=player,
             audio=config.audio,
         )
+        audio_router = router
+        play_handler = playback.handle_event
 
         def handle(plan, name):
             playback.handle_event(name)
@@ -96,6 +100,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         from prayerhub.control_panel import ControlPanelServer
 
         secret_key = os.getenv("PRAYERHUB_SECRET_KEY", "prayerhub-dev")
+        log_path = os.getenv("PRAYERHUB_LOG_PATH")
         server = ControlPanelServer(
             username=config.control_panel.auth.username,
             password_hash=config.control_panel.auth.password_hash,
@@ -103,6 +108,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             secret_key=secret_key,
             host=config.control_panel.host,
             port=config.control_panel.port,
+            scheduler=scheduler,
+            audio_router=audio_router,
+            play_handler=play_handler,
+            log_path=log_path,
         )
         logger.info("Starting control panel on %s:%s", server.host, server.port)
         server.app.run(host=server.host, port=server.port)

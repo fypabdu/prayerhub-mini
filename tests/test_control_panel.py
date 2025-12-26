@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from werkzeug.security import generate_password_hash
@@ -54,6 +55,7 @@ def _make_app() -> tuple[ControlPanelServer, TestScheduleService, FakeRouter, Fa
         scheduler=scheduler,
         audio_router=router,
         play_handler=player,
+        log_path="logs/test.log",
     )
     return server, test_scheduler, router, player
 
@@ -120,11 +122,16 @@ def test_dashboard_shows_next_jobs_and_test_jobs() -> None:
         replace_existing=True,
     )
 
+    log_path = Path("logs/test.log")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("line1\nline2\n", encoding="utf-8")
+
     resp = client.get("/")
     body = resp.get_data(as_text=True)
 
     assert "event_fajr_20250101" in body
     assert "test_audio" in body
+    assert "line2" in body
 
 
 def test_controls_volume_buttons_call_router() -> None:

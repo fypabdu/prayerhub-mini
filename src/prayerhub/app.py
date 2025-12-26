@@ -18,16 +18,19 @@ from prayerhub.test_scheduler import TestScheduleService
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
-    LoggerFactory.create("prayerhub")
-    logger = logging.getLogger("prayerhub")
-
     try:
         config_path = Path(args.config) if args.config else None
         config_loader = ConfigLoader(config_path=config_path)
         config = config_loader.load()
     except ConfigError as exc:
+        LoggerFactory.create("prayerhub")
+        logger = logging.getLogger("prayerhub")
         logger.error("Config error: %s", exc)
         return 2
+
+    log_path = os.getenv("PRAYERHUB_LOG_PATH") or config.logging.file_path
+    LoggerFactory.create("prayerhub", log_file=log_path)
+    logger = logging.getLogger("prayerhub")
 
     cache_dir = Path(os.getenv("PRAYERHUB_CACHE_DIR", "/var/lib/prayerhub/cache"))
     cache_store = CacheStore(cache_dir)
@@ -114,7 +117,6 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         from prayerhub.control_panel import ControlPanelServer
 
         secret_key = os.getenv("PRAYERHUB_SECRET_KEY", "prayerhub-dev")
-        log_path = os.getenv("PRAYERHUB_LOG_PATH")
         server = ControlPanelServer(
             username=config.control_panel.auth.username,
             password_hash=config.control_panel.auth.password_hash,

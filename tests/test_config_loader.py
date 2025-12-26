@@ -83,6 +83,9 @@ control_panel:
   test_scheduler:
     max_pending_tests: 10
     max_minutes_ahead: 1440
+
+logging:
+  file_path: "logs/prayerhub.log"
 """
 
 
@@ -112,6 +115,7 @@ location:
     config = ConfigLoader().load()
 
     assert config.location.city == "kandy"
+    assert config.logging.file_path == "logs/prayerhub.log"
 
 
 def test_missing_test_audio_path_fails_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

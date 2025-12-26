@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import yaml
 
@@ -76,6 +76,11 @@ class ControlPanelConfig:
 
 
 @dataclass(frozen=True)
+class LoggingConfig:
+    file_path: Optional[str]
+
+
+@dataclass(frozen=True)
 class AdhanAudio:
     fajr: str
     dhuhr: str
@@ -105,6 +110,7 @@ class AppConfig:
     audio: AudioConfig
     bluetooth: BluetoothConfig
     control_panel: ControlPanelConfig
+    logging: LoggingConfig
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
@@ -251,12 +257,17 @@ class ConfigLoader:
                 max_minutes_ahead=int(test_scheduler_data["max_minutes_ahead"]),
             ),
         )
+        logging_data = data.get("logging", {})
+        logging_config = LoggingConfig(
+            file_path=logging_data.get("file_path"),
+        )
         return AppConfig(
             location=location,
             api=api,
             audio=audio,
             bluetooth=bluetooth,
             control_panel=control_panel,
+            logging=logging_config,
         )
 
     def _validate(self, config: AppConfig) -> None:

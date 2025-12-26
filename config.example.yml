@@ -48,3 +48,6 @@ control_panel:
   test_scheduler:
     max_pending_tests: 10
     max_minutes_ahead: 1440
+
+logging:
+  file_path: "logs/prayerhub.log"

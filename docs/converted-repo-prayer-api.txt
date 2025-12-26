@@ -1,0 +1,1969 @@
+Selected Files Directory Structure:
+
+└── ./
+    ├── .github
+    │   └── workflows
+    │       ├── ci.yml
+    │       └── manual-deploy.yml
+    ├── infra
+    │   ├── main.tf
+    │   ├── outputs.tf
+    │   ├── provider.tf
+    │   └── variables.tf
+    ├── prayer_api
+    │   ├── data_lk
+    │   │   ├── hanafi.colombo.json
+    │   │   ├── hanafi.others.json
+    │   │   ├── shafi.colombo.json
+    │   │   └── shafi.others.json
+    │   ├── __init__.py
+    │   ├── asgi.py
+    │   ├── settings.py
+    │   ├── urls.py
+    │   └── wsgi.py
+    ├── times
+    │   ├── migrations
+    │   │   └── __init__.py
+    │   ├── tests
+    │   │   ├── __init__.py
+    │   │   └── test_api.py
+    │   ├── __init__.py
+    │   ├── admin.py
+    │   ├── apps.py
+    │   ├── datamodels.py
+    │   ├── models.py
+    │   ├── serializers.py
+    │   ├── urls.py
+    │   ├── utils.py
+    │   ├── validation.py
+    │   └── views.py
+    ├── Dockerfile
+    ├── manage.py
+    ├── README.md
+    └── requirements.txt
+
+
+
+--- .github/workflows/ci.yml ---
+
+name: CI/CD
+
+permissions:
+  contents: write  # needed for release + pushing README updates
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  version:
+    name: Extract Version
+    runs-on: ubuntu-latest
+    environment: production
+    outputs:
+      tag: ${{ steps.set-tag.outputs.tag }}
+      is_tag: ${{ steps.set-tag.outputs.is_tag }}
+    steps:
+      - name: Derive tag or fallback
+        id: set-tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            IS_TAG=true
+          else
+            TAG="latest"
+            IS_TAG=false
+          fi
+          echo "tag=$TAG"       >> "$GITHUB_OUTPUT"
+          echo "is_tag=$IS_TAG" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: version
+    environment: production
+    strategy:
+      matrix:
+        python-version: [ "3.10", "3.11", "3.12" ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install coverage flake8
+
+      - name: Lint (error-only gate)
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Lint (metrics)
+        run: flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+
+      - name: Run tests + coverage
+        run: |
+          coverage run manage.py test
+          coverage xml
+          coverage report -m
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  dockerhub:
+    name: Build & Push Docker Hub
+    runs-on: ubuntu-latest
+    needs: [test, version]
+    environment: production
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build & push
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          docker build -t abu99/prayer-api:${TAG} .
+          docker push abu99/prayer-api:${TAG}
+          if [[ ("${{ github.ref_type }}" == "branch" && "${{ github.ref_name }}" == "main") || "${{ needs.version.outputs.is_tag }}" == "true" ]]; then
+            docker tag abu99/prayer-api:${TAG} abu99/prayer-api:latest
+            docker push abu99/prayer-api:latest
+          fi
+
+  ecr:
+    name: Build & Push AWS ECR
+    runs-on: ubuntu-latest
+    needs: [test, version]
+    environment: production
+    if: github.event_name != 'pull_request'
+    outputs:
+      ecr_repo_url: ${{ steps.set-vars.outputs.ecr_repo_url }}
+      image_tag: ${{ steps.set-vars.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Public ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+
+      - name: Build & push
+        id: set-vars
+        env:
+          TAG: ${{ needs.version.outputs.tag }}
+          ECR_REPO: ${{ vars.ECR_REPO_URL }}
+        run: |
+          docker build -t "${ECR_REPO}:${TAG}" .
+          docker push "${ECR_REPO}:${TAG}"
+          if [[ ("${{ github.ref_type }}" == "branch" && "${{ github.ref_name }}" == "main") || "${{ needs.version.outputs.is_tag }}" == "true" ]]; then
+            docker tag "${ECR_REPO}:${TAG}" "${ECR_REPO}:latest"
+            docker push "${ECR_REPO}:latest"
+          fi
+          echo "ecr_repo_url=${ECR_REPO}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${TAG}"         >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy to AWS (Terraform)
+    runs-on: ubuntu-latest
+    needs: [dockerhub, ecr]
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: production
+    outputs:
+      alb_url: ${{ steps.set-alb-url.outputs.alb_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform init
+        run: terraform -chdir=infra init -input=false
+
+      - name: Terraform plan
+        run: terraform -chdir=infra plan -input=false
+        env:
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_ecr_repo_url: ${{ needs.ecr.outputs.ecr_repo_url }}
+          TF_VAR_image_tag: ${{ needs.ecr.outputs.image_tag }}
+
+      - name: Terraform apply
+        run: terraform -chdir=infra apply -input=false -auto-approve
+        env:
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_ecr_repo_url: ${{ needs.ecr.outputs.ecr_repo_url }}
+          TF_VAR_image_tag: ${{ needs.ecr.outputs.image_tag }}
+
+      - name: Capture Terraform outputs
+        id: tf-out
+        run: terraform -chdir=infra output -json > tf_outputs.json
+
+      - name: Extract ALB URL
+        id: set-alb-url
+        shell: bash
+        run: |
+          URL=$(jq -r '.alb_dns_name.value' tf_outputs.json)
+          echo "ALB URL: ${URL}"
+          echo "alb_url=${URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize deployment
+        run: |
+          echo "## 🚀 Deployment Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service URL:** [${{ steps.set-alb-url.outputs.alb_url }}](${{ steps.set-alb-url.outputs.alb_url }})" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create GitHub Release (includes ALB URL)
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ### Deployment
+            **Service URL:** ${{ steps.set-alb-url.outputs.alb_url }}
+
+      # README update is optional but supports always showing the latest deployed URL.
+      # It will only modify the section between the markers if they exist.
+#      - name: Update README with latest ALB URL
+#        if: ${{ always() }}
+#        shell: bash
+#        run: |
+#          # Ensure we're on the default branch (tags check out a detached ref)
+#          git fetch origin main
+#          git checkout main
+#
+#          URL='${{ steps.set-alb-url.outputs.alb_url }}'
+#          if [[ -z "$URL" || "$URL" == "null" ]]; then
+#            echo "No ALB URL found; skipping README update."
+#            exit 0
+#          fi
+#
+#          if [[ ! -f README.md ]]; then
+#            echo "README.md not found; skipping."
+#            exit 0
+#          fi
+#
+#          # Update content only inside markers. If markers are absent, skip.
+#          # Marker block expected in README.md:
+#          # <!-- START_SERVICE_URL -->
+#          # <!-- END_SERVICE_URL -->
+#          if grep -q "<!-- START_SERVICE_URL -->" README.md && grep -q "<!-- END_SERVICE_URL -->" README.md; then
+#            awk -v url="$URL" '
+#              BEGIN { inblk=0 }
+#              /<!-- START_SERVICE_URL -->/ { print; inblk=1; print ""; print "**Latest deployment:** [" url "](" url ")"; next }
+#              /<!-- END_SERVICE_URL -->/   { inblk=0; print; next }
+#              { if (!inblk) print }
+#            ' README.md > README.md.new && mv README.md.new README.md
+#
+#            if ! git diff --quiet -- README.md; then
+#              git config user.name  "github-actions[bot]"
+#              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+#              git add README.md
+#              git commit -m "docs: update latest deployment URL in README [skip ci]"
+#              git push origin main
+#            else
+#              echo "README already up-to-date."
+#            fi
+#          else
+#            echo "Markers not found; skipping README update."
+#          fi
+
+
+--- .github/workflows/manual-deploy.yml ---
+
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy"
+        required: true
+        default: "latest"
+
+jobs:
+  manual-deploy:
+    name: Manual Deploy to AWS
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+      - run: terraform -chdir=infra init -input=false
+#      - run: terraform -chdir=infra plan -input=false
+#        env:
+#          TF_VAR_image_tag: ${{ github.event.inputs.image_tag }}
+#          TF_VAR_ecr_repo_url: ${{ vars.ECR_REPO_URL }}
+#          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      - run: terraform -chdir=infra apply -input=false -auto-approve
+        env:
+          TF_VAR_image_tag: ${{ github.event.inputs.image_tag }}
+          TF_VAR_ecr_repo_url: ${{ vars.ECR_REPO_URL }}
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+
+
+--- Dockerfile ---
+
+FROM python:3.12-slim
+
+LABEL authors="fypabdu"
+
+# Prevent Python from buffering stdout
+ENV PYTHONUNBUFFERED=1
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies (needed by psycopg2/mysqlclient if used later)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the entire project
+COPY . .
+
+# Collect static files (optional for Django)
+RUN python manage.py collectstatic --noinput || true
+
+# Expose the port
+EXPOSE 8000
+
+# Run with Gunicorn
+CMD ["gunicorn", "prayer_api.wsgi:application", "--bind", "0.0.0.0:8000"]
+
+
+--- README.md ---
+
+# Prayer Times API Sri Lanka
+
+[![Python Version](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+[![CI/CD](https://github.com/fypabdu/prayer-api/actions/workflows/ci.yml/badge.svg)](https://github.com/fypabdu/prayer-api/actions/workflows/ci.yml)
+[![Docker Hub](https://img.shields.io/docker/v/abu99/prayer-api?sort=semver)](https://hub.docker.com/r/abu99/prayer-api)
+[![codecov](https://codecov.io/gh/fypabdu/prayer-api/branch/main/graph/badge.svg?token=<CODECOV_TOKEN>)](https://codecov.io/gh/fypabdu/prayer-api)
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+This is a lightweight Django + DRF API that serves prayer times for Sri Lanka.  
+The dataset comes from [`prayer-time-lk`](https://github.com/thani-sh/prayer-time-lk/tree/main/data), and I’ve wrapped it in a clean, documented REST API with OpenAPI/Swagger out of the box.
+
+Latest deployment: [`http://prayer-api-lb-1574385576.us-east-1.elb.amazonaws.com/api/v1/docs/swagger/`](http://prayer-api-lb-1574385576.us-east-1.elb.amazonaws.com/api/v1/docs/swagger/)
+
+
+---
+
+## ✨ Features
+
+- 🕌 **Prayer times API**  
+  - Get today’s prayer times  
+  - Get times for a specific date  
+  - Get the next prayer after a given datetime  
+  - Get times for a date range  
+
+- 🧑‍💻 **Developer friendly**  
+  - Built with Django REST Framework  
+  - Auto-generated Swagger docs via drf-spectacular  
+  - Structured datamodels with serializers + tests  
+
+- ✅ **Tests included**  
+  - Unit tests for all endpoints  
+  - Covers valid/invalid input and dataset edge cases  
+
+---
+
+## 🚀 Getting Started
+
+### 1. Clone and install
+```bash
+git clone https://github.com/YOUR_USERNAME/prayer-api.git
+cd prayer-api
+python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+pip install -r requirements.txt
+```
+
+### 2. Run Migrations
+
+```bash
+python manage.py migrate
+```
+
+### 3. Run the Server
+```bash
+python manage.py runserver
+```
+
+### 4. Run the tests
+```bash
+python manage.py test times
+```
+
+## 📡 API Endpoints
+### Today’s Times
+```bash
+GET /api/v1/times/today/?madhab=shafi&city=colombo
+```
+
+### Times for a Specific Date
+```bash
+GET /api/v1/times/date/?madhab=hanafi&city=others&date=2025-09-23
+```
+
+### Next Prayer
+```bash
+GET /api/v1/times/next/?madhab=shafi&city=colombo&datetime=2025-09-23T15:45
+```
+
+### Times for a Date Range
+```bash
+GET /api/v1/times/range/?madhab=shafi&city=colombo&start=2025-09-20&end=2025-09-22
+```
+
+### Swagger/OpenAPI Docs
+```bash
+/api/schema/swagger-ui/
+```
+
+
+## 🛠 Tech Stack
+
+* Python 3.12
+* Django 5
+* Django REST Framework
+* drf-spectacular (for OpenAPI docs)
+* Pytest / DRF test client
+* pytz (timezone handling)
+
+## 📦 Deployment
+
+
+* AWS Lambda (serverless)
+* Terraform (IaC) for infra
+* GitHub Actions (CI/CD) for tests + deployments
+* Route53 for DNS if you want a nice URL
+
+
+## 🤝 Contributing 
+
+PRs and suggestions welcome! Please make sure tests are green before submitting.
+
+
+## 📄 License
+MIT — use it, hack it, share it.
+
+
+
+--- infra/main.tf ---
+
+terraform {
+  backend "remote" {
+    organization = "abu"
+
+    workspaces {
+      name = "prayer-api"
+    }
+  }
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+data "aws_caller_identity" "current" {}
+data "aws_elb_service_account" "this" {}
+
+# -----------------------------
+# Networking (VPC, Subnets, SG)
+# -----------------------------
+
+resource "aws_vpc" "prayer_api" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+  tags                 = { Name = "prayer-api-vpc" }
+}
+
+resource "aws_internet_gateway" "prayer_api" {
+  vpc_id = aws_vpc.prayer_api.id
+  tags   = { Name = "prayer-api-igw" }
+}
+
+resource "aws_subnet" "prayer_api_a" {
+  vpc_id                  = aws_vpc.prayer_api.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "${var.aws_region}a"
+  map_public_ip_on_launch = true
+  tags                    = { Name = "prayer-api-subnet-a" }
+}
+
+resource "aws_subnet" "prayer_api_b" {
+  vpc_id                  = aws_vpc.prayer_api.id
+  cidr_block              = "10.0.2.0/24"
+  availability_zone       = "${var.aws_region}b"
+  map_public_ip_on_launch = true
+  tags                    = { Name = "prayer-api-subnet-b" }
+}
+
+resource "aws_route_table" "prayer_api" {
+  vpc_id = aws_vpc.prayer_api.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.prayer_api.id
+  }
+}
+
+resource "aws_route_table_association" "prayer_api_a" {
+  subnet_id      = aws_subnet.prayer_api_a.id
+  route_table_id = aws_route_table.prayer_api.id
+}
+
+resource "aws_route_table_association" "prayer_api_b" {
+  subnet_id      = aws_subnet.prayer_api_b.id
+  route_table_id = aws_route_table.prayer_api.id
+}
+
+resource "aws_security_group" "prayer_api" {
+  vpc_id = aws_vpc.prayer_api.id
+  name   = "prayer-api-sg"
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = { Name = "prayer-api-sg" }
+}
+
+# -----------------------------
+# Compute (Launch Template, ASG)
+# -----------------------------
+
+# Amazon Linux 2 AMI (x86_64, HVM, EBS gp2)
+data "aws_ami" "al2" {
+  owners      = ["137112412989"]
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-2.0.*-x86_64-gp2"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+resource "aws_cloudwatch_log_group" "app" {
+  name              = "/prayer-api/app"
+  retention_in_days = 30
+}
+
+resource "aws_launch_template" "prayer_api" {
+  name_prefix            = "prayer-api-"
+  image_id               = data.aws_ami.al2.id
+  instance_type          = "t3.micro"
+  update_default_version = true
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.ec2_ssm_profile.name
+  }
+
+  user_data = base64encode(<<-EOT
+    #!/bin/bash
+    set -euxo pipefail
+
+    # Update packages
+    yum update -y
+
+    # Install Docker on Amazon Linux 2
+    amazon-linux-extras install -y docker
+    systemctl enable --now docker
+
+    # Install CloudWatch Agent (Amazon Linux 2 yum package)
+    yum install -y amazon-cloudwatch-agent
+
+    mkdir -p /opt/aws/amazon-cloudwatch-agent/etc
+    cat >/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CFG'
+    {
+      "logs": {
+        "logs_collected": {
+          "files": {
+            "collect_list": [
+              {
+                "file_path": "/var/lib/docker/containers/*/*-json.log",
+                "log_group_name": "/prayer-api/app",
+                "log_stream_name": "{instance_id}/docker",
+                "timestamp_format": "%Y-%m-%dT%H:%M:%S.%f%z",
+                "multi_line_start_pattern": "^{"
+              }
+            ]
+          }
+        },
+        "force_flush_interval": 5
+      }
+    }
+    CFG
+
+    systemctl enable amazon-cloudwatch-agent
+    systemctl restart amazon-cloudwatch-agent
+
+    # Run the app container with the exact tag provided by Terraform
+    docker rm -f prayer-api || true
+    docker run -d --restart always --name prayer-api -p 80:8000 ${var.ecr_repo_url}:${var.image_tag}
+  EOT
+  )
+
+  vpc_security_group_ids = [aws_security_group.prayer_api.id]
+
+  lifecycle { create_before_destroy = true }
+}
+
+resource "aws_autoscaling_group" "prayer_api" {
+  desired_capacity = 1
+  min_size         = 1
+  max_size         = 3
+
+  launch_template {
+    id      = aws_launch_template.prayer_api.id
+    version = "$Latest"
+  }
+
+  vpc_zone_identifier = [
+    aws_subnet.prayer_api_a.id,
+    aws_subnet.prayer_api_b.id
+  ]
+
+  target_group_arns = [aws_lb_target_group.prayer_api.arn]
+
+  instance_refresh {
+    strategy = "Rolling"
+    preferences {
+      min_healthy_percentage = 100
+      instance_warmup        = 60
+      skip_matching          = false
+    }
+    triggers = ["launch_template"]
+  }
+
+  tag {
+    key                 = "Name"
+    value               = "prayer-api"
+    propagate_at_launch = true
+  }
+
+  depends_on = [aws_lb_listener.prayer_api]
+}
+
+# -----------------------------
+# Load Balancer and Access Logs
+# -----------------------------
+
+resource "aws_s3_bucket" "alb_logs" {
+  bucket        = "prayer-api-alb-logs-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_public_access_block" "alb_logs" {
+  bucket                  = aws_s3_bucket.alb_logs.id
+  block_public_acls       = true
+  block_public_policy     = true
+  restrict_public_buckets = true
+  ignore_public_acls      = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+
+  rule {
+    id     = "expire-90-days"
+    status = "Enabled"
+    expiration { days = 90 }
+    filter {}
+  }
+}
+
+resource "aws_s3_bucket_policy" "alb_logs" {
+  bucket = aws_s3_bucket.alb_logs.id
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid       = "AllowElbRegionalAccountPutObject",
+        Effect    = "Allow",
+        Principal = { AWS = data.aws_elb_service_account.this.arn },
+        Action    = ["s3:PutObject"],
+        Resource  = "${aws_s3_bucket.alb_logs.arn}/alb/AWSLogs/${data.aws_caller_identity.current.account_id}/*",
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = "bucket-owner-full-control"
+          }
+        }
+      },
+      {
+        Sid       = "AllowAlbServicePutObject",
+        Effect    = "Allow",
+        Principal = { Service = "logdelivery.elasticloadbalancing.amazonaws.com" },
+        Action    = ["s3:PutObject"],
+        Resource  = "${aws_s3_bucket.alb_logs.arn}/alb/AWSLogs/${data.aws_caller_identity.current.account_id}/*",
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id,
+            "s3:x-amz-acl"      = "bucket-owner-full-control"
+          }
+        }
+      },
+      {
+        Sid       = "AllowAlbServiceListGet",
+        Effect    = "Allow",
+        Principal = { Service = "logdelivery.elasticloadbalancing.amazonaws.com" },
+        Action    = ["s3:ListBucket", "s3:GetBucketLocation"],
+        Resource  = aws_s3_bucket.alb_logs.arn,
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_lb" "prayer_api" {
+  name               = "prayer-api-lb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.prayer_api.id]
+  subnets            = [aws_subnet.prayer_api_a.id, aws_subnet.prayer_api_b.id]
+
+  access_logs {
+    bucket  = aws_s3_bucket.alb_logs.bucket
+    enabled = true
+    prefix  = "alb"
+  }
+}
+
+resource "aws_lb_target_group" "prayer_api" {
+  name     = "prayer-api-tg"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.prayer_api.id
+
+  health_check {
+    path                = "/api/v1/times/today/"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
+resource "aws_lb_listener" "prayer_api" {
+  load_balancer_arn = aws_lb.prayer_api.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.prayer_api.arn
+  }
+}
+
+# -----------------------------
+# IAM (SSM + CloudWatch Agent)
+# -----------------------------
+
+data "aws_iam_policy_document" "ec2_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "ec2_ssm_role" {
+  name               = "prayer-api-ec2-ssm-role"
+  assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "ssm_core" {
+  role       = aws_iam_role.ec2_ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_iam_role_policy_attachment" "cw_agent" {
+  role       = aws_iam_role.ec2_ssm_role.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+resource "aws_iam_instance_profile" "ec2_ssm_profile" {
+  name = "prayer-api-ec2-ssm-profile"
+  role = aws_iam_role.ec2_ssm_role.name
+}
+
+
+--- infra/outputs.tf ---
+
+output "alb_dns_name" {
+  description = "Public DNS name of the ALB"
+  value       = aws_lb.prayer_api.dns_name
+}
+
+output "deployed_image" {
+  description = "Deployed Docker image"
+  value       = "${var.ecr_repo_url}:${var.image_tag}"
+}
+
+
+--- infra/provider.tf ---
+
+
+
+--- infra/variables.tf ---
+
+variable "aws_region" {
+  description = "AWS region to deploy to"
+  type        = string
+}
+
+variable "ecr_repo_url" {
+  description = "ECR repository URL for the Docker image"
+  type        = string
+}
+
+variable "image_tag" {
+  description = "Docker image tag to deploy"
+  type        = string
+  default     = "latest"
+}
+
+variable "AWS_ACCESS_KEY_ID" {
+  description = "AWS Access Key"
+  type        = string
+  default     = ""
+}
+
+variable "AWS_SECRET_ACCESS_KEY" {
+  description = "AWS Secret Key"
+  type        = string
+  default     = ""
+}
+
+variable "AWS_DEFAULT_REGION" {
+  description = "AWS Default region"
+  type        = string
+  default     = "us-east-1"
+}
+
+
+--- manage.py ---
+
+#!/usr/bin/env python
+"""Django's command-line utility for administrative tasks."""
+import os
+import sys
+
+
+def main():
+    """Run administrative tasks."""
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'prayer_api.settings')
+    try:
+        from django.core.management import execute_from_command_line
+    except ImportError as exc:
+        raise ImportError(
+            "Couldn't import Django. Are you sure it's installed and "
+            "available on your PYTHONPATH environment variable? Did you "
+            "forget to activate a virtual environment?"
+        ) from exc
+    execute_from_command_line(sys.argv)
+
+
+if __name__ == '__main__':
+    main()
+
+
+--- prayer_api/__init__.py ---
+
+
+
+--- prayer_api/asgi.py ---
+
+"""
+ASGI config for prayer_api project.
+
+It exposes the ASGI callable as a module-level variable named ``application``.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
+"""
+
+import os
+
+from django.core.asgi import get_asgi_application
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'prayer_api.settings')
+
+application = get_asgi_application()
+
+
+--- prayer_api/data_lk/hanafi.colombo.json ---
+
+[[[300,382,735,989,1087,1161],[300,382,735,989,1087,1161],[300,382,735,989,1087,1161],[302,384,737,991,1089,1163],[302,384,737,991,1089,1163],[302,384,737,991,1089,1163],[303,385,738,992,1090,1164],[303,385,738,992,1090,1164],[304,385,739,993,1091,1165],[304,385,739,993,1091,1165],[305,386,740,994,1092,1166],[305,386,740,994,1092,1166],[306,387,740,995,1092,1167],[306,387,740,995,1092,1167],[306,387,740,995,1092,1167],[307,388,742,996,1094,1168],[307,388,742,996,1094,1168],[308,388,742,996,1095,1169],[308,388,742,996,1095,1169],[308,388,742,996,1095,1169],[309,389,743,998,1096,1170],[309,389,743,998,1096,1170],[309,389,743,998,1096,1170],[309,389,743,998,1096,1170],[309,389,743,998,1096,1170],[310,390,744,1000,1098,1171],[310,390,744,1000,1098,1171],[310,390,744,1000,1098,1171],[310,390,744,1000,1098,1171],[311,390,745,1002,1099,1172],[311,390,745,1002,1099,1172]],[[311,390,746,1002,1101,1172],[311,390,746,1002,1101,1172],[311,390,746,1002,1101,1172],[311,390,746,1002,1101,1172],[311,390,746,1002,1101,1172],[311,390,746,1002,1101,1172],[311,389,746,1003,1102,1173],[311,389,746,1003,1102,1173],[311,389,746,1003,1102,1173],[311,389,746,1003,1102,1173],[311,389,746,1003,1102,1173],[311,389,746,1003,1102,1173],[311,388,746,1004,1102,1173],[311,388,746,1004,1102,1173],[311,388,746,1004,1102,1173],[311,388,746,1004,1102,1173],[311,388,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[309,385,745,1003,1103,1173],[309,385,745,1003,1103,1173],[309,385,745,1003,1103,1173],[309,385,745,1003,1103,1173],[309,385,745,1003,1103,1173]],[[308,384,744,1003,1103,1172],[308,384,744,1003,1103,1172],[308,384,744,1003,1103,1172],[308,384,744,1003,1103,1172],[306,382,743,1002,1103,1172],[306,382,743,1002,1103,1172],[306,382,743,1002,1103,1172],[306,382,743,1002,1103,1172],[306,382,743,1002,1103,1172],[304,380,742,1001,1103,1172],[304,380,742,1001,1103,1172],[304,380,742,1001,1103,1172],[304,380,742,1001,1102,1172],[303,378,741,1000,1102,1171],[303,378,741,1000,1102,1171],[303,378,741,1000,1102,1171],[303,378,741,1000,1102,1171],[303,378,741,1000,1102,1171],[301,376,740,998,1102,1171],[301,376,740,998,1102,1171],[299,374,739,997,1101,1171],[299,374,739,997,1101,1171],[299,374,739,997,1101,1171],[299,374,739,997,1101,1171],[297,373,738,996,1101,1171],[297,373,738,996,1101,1171],[297,373,738,996,1101,1171],[296,371,737,994,1101,1170],[296,371,737,994,1101,1170],[296,371,737,994,1101,1170],[294,370,736,993,1100,1170]],[[294,370,736,993,1101,1170],[294,370,736,993,1101,1170],[292,368,735,992,1101,1170],[292,368,735,992,1101,1170],[292,368,735,992,1101,1170],[290,367,734,990,1100,1170],[290,367,734,990,1100,1170],[290,367,734,990,1100,1170],[290,367,734,990,1100,1170],[290,367,734,990,1100,1170],[290,367,734,990,1100,1170],[288,365,733,990,1100,1170],[288,365,733,990,1099,1170],[288,365,733,990,1099,1170],[286,363,732,991,1099,1170],[286,363,732,991,1099,1170],[286,363,732,991,1099,1170],[286,363,732,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[281,359,730,991,1099,1170],[281,359,730,991,1099,1170],[281,359,730,991,1099,1170],[281,359,730,991,1099,1170],[281,359,730,991,1099,1170],[279,357,729,992,1099,1170]],[[279,357,729,992,1100,1171],[279,357,729,992,1100,1171],[279,357,729,992,1100,1171],[277,357,729,993,1100,1172],[277,357,729,993,1100,1172],[277,357,729,993,1100,1172],[277,357,729,993,1100,1172],[277,357,729,993,1100,1172],[275,355,728,994,1101,1172],[275,355,728,994,1101,1172],[275,355,728,994,1101,1172],[275,355,728,994,1101,1172],[275,355,728,994,1100,1172],[275,355,728,994,1100,1172],[274,354,728,994,1100,1174],[274,354,728,994,1100,1174],[274,354,728,994,1100,1174],[274,354,728,994,1100,1174],[274,354,728,994,1100,1174],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[272,353,729,997,1102,1178],[272,353,729,997,1102,1178],[272,353,729,997,1102,1178],[272,354,729,998,1103,1179],[272,354,729,998,1103,1179],[272,354,729,998,1103,1179]],[[272,354,730,998,1105,1180],[272,354,730,998,1105,1180],[272,354,730,998,1105,1180],[272,354,730,998,1105,1180],[272,354,730,998,1105,1180],[272,354,730,998,1105,1180],[271,354,731,1000,1106,1182],[271,354,731,1000,1106,1182],[271,354,731,1000,1106,1182],[271,354,731,1000,1106,1182],[271,355,731,1001,1107,1183],[271,355,731,1001,1107,1183],[271,355,731,1001,1106,1183],[271,355,731,1001,1106,1183],[272,355,732,1001,1107,1184],[272,355,732,1001,1107,1184],[272,355,732,1001,1107,1184],[272,356,733,1002,1108,1184],[272,356,733,1002,1108,1184],[272,356,733,1002,1108,1184],[273,357,734,1003,1109,1185],[273,357,734,1003,1109,1185],[273,357,734,1003,1109,1185],[273,357,734,1003,1109,1185],[273,357,734,1003,1109,1185],[274,358,735,1004,1110,1187],[274,358,735,1004,1110,1187],[274,358,735,1004,1110,1187],[274,358,735,1004,1110,1187],[274,358,735,1004,1110,1187]],[[275,359,736,1005,1112,1187],[275,359,736,1005,1112,1187],[275,359,736,1005,1112,1187],[275,359,736,1005,1112,1187],[275,359,736,1005,1112,1187],[275,359,736,1005,1112,1187],[277,360,737,1006,1113,1188],[277,360,737,1006,1113,1188],[277,360,737,1006,1113,1188],[277,360,737,1006,1113,1188],[279,361,737,1006,1113,1188],[279,361,737,1006,1113,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[281,363,738,1006,1112,1187],[281,363,738,1006,1112,1187],[281,363,738,1006,1112,1187],[281,363,738,1006,1112,1187],[281,363,738,1006,1112,1187],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[283,364,738,1004,1111,1184],[283,364,738,1004,1111,1184]],[[283,364,738,1004,1112,1184],[283,364,738,1004,1112,1184],[283,364,738,1004,1112,1184],[283,364,738,1004,1112,1184],[285,365,738,1003,1110,1183],[285,365,738,1003,1110,1183],[285,365,738,1003,1110,1183],[285,365,738,1003,1110,1183],[285,365,738,1003,1110,1183],[285,364,737,1001,1108,1180],[285,364,737,1001,1108,1180],[285,364,737,1001,1108,1180],[285,364,737,1001,1107,1180],[285,364,737,1001,1107,1180],[286,364,736,999,1106,1178],[286,364,736,999,1106,1178],[286,364,736,999,1106,1178],[286,364,736,999,1106,1178],[286,364,736,999,1106,1178],[286,364,735,997,1104,1176],[286,364,735,997,1104,1176],[286,364,735,997,1104,1176],[286,364,735,997,1104,1176],[286,364,734,994,1102,1174],[286,364,734,994,1102,1174],[286,364,734,994,1102,1174],[287,364,733,993,1101,1172],[287,364,733,993,1101,1172],[287,364,733,993,1101,1172],[287,363,733,991,1099,1171],[287,363,733,991,1099,1171]],[[287,363,733,991,1100,1170],[287,363,732,989,1099,1168],[287,363,732,989,1099,1168],[287,363,732,989,1099,1168],[287,363,731,987,1097,1167],[287,363,731,987,1097,1167],[287,363,731,987,1097,1167],[287,363,731,987,1097,1167],[286,362,729,986,1095,1165],[286,362,729,986,1095,1165],[286,362,729,986,1095,1165],[286,362,728,985,1094,1163],[286,362,728,985,1093,1163],[286,362,728,985,1093,1163],[285,361,727,984,1091,1161],[285,361,727,984,1091,1161],[285,361,727,984,1091,1161],[285,360,726,984,1089,1159],[285,360,726,984,1089,1159],[285,360,726,984,1089,1159],[285,360,726,984,1089,1159],[285,360,726,984,1089,1159],[284,360,724,983,1087,1157],[284,360,724,983,1087,1157],[284,360,724,983,1087,1157],[284,360,724,983,1087,1157],[284,359,723,981,1085,1154],[284,359,723,981,1085,1154],[284,359,723,981,1085,1154],[284,359,723,981,1085,1154]],[[283,359,722,980,1084,1152],[283,359,722,980,1084,1152],[283,358,721,980,1082,1151],[283,358,721,980,1082,1151],[283,358,721,980,1082,1151],[283,358,721,980,1082,1151],[282,358,720,979,1080,1149],[282,358,720,979,1080,1149],[282,358,719,978,1079,1148],[282,358,719,978,1079,1148],[282,358,719,978,1079,1148],[282,358,719,978,1079,1148],[282,358,719,978,1078,1148],[281,357,718,976,1076,1146],[281,357,718,976,1076,1146],[281,357,718,976,1076,1146],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144]],[[281,359,716,974,1072,1143],[281,359,716,974,1072,1143],[281,359,716,974,1072,1143],[281,359,716,974,1072,1143],[281,359,716,974,1072,1143],[281,359,716,974,1072,1143],[281,359,716,974,1072,1143],[281,360,716,973,1071,1142],[281,360,716,973,1071,1142],[281,360,716,973,1071,1142],[281,360,716,973,1071,1142],[281,360,716,973,1071,1142],[281,360,716,973,1070,1142],[281,360,716,973,1070,1142],[281,360,716,973,1070,1142],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[283,363,718,973,1071,1144],[283,363,718,973,1071,1144],[283,363,718,973,1071,1144],[285,365,719,974,1071,1145],[285,365,719,974,1071,1145],[285,365,719,974,1071,1145],[285,366,720,974,1072,1146],[285,366,720,974,1072,1146],[285,366,720,974,1072,1146]],[[287,368,721,976,1074,1147],[287,368,721,976,1074,1147],[287,368,721,976,1074,1147],[288,369,722,977,1075,1148],[288,369,722,977,1075,1148],[288,369,722,977,1075,1148],[289,370,724,977,1076,1149],[289,370,724,977,1076,1149],[289,370,724,977,1076,1149],[290,372,725,978,1077,1151],[290,372,725,978,1077,1151],[291,373,726,980,1078,1152],[291,373,726,980,1077,1152],[291,373,726,980,1077,1152],[293,375,727,981,1078,1154],[293,375,727,981,1078,1154],[294,375,728,982,1079,1154],[294,375,728,982,1079,1154],[294,376,729,982,1080,1155],[294,376,729,982,1080,1155],[296,378,730,984,1081,1156],[296,378,731,984,1082,1157],[296,378,731,984,1082,1157],[296,378,731,984,1082,1157],[296,378,731,984,1082,1157],[297,380,733,985,1083,1158],[297,380,733,985,1083,1158],[299,381,734,987,1084,1159],[299,381,734,987,1084,1159],[300,381,735,988,1085,1160],[300,381,735,988,1085,1160]]]
+
+--- prayer_api/data_lk/hanafi.others.json ---
+
+[[[300,382,735,989,1086,1161],[300,382,735,989,1086,1161],[300,382,735,989,1086,1161],[302,384,737,991,1088,1163],[302,384,737,991,1088,1163],[302,384,737,991,1088,1163],[303,385,738,992,1089,1164],[303,385,738,992,1089,1164],[304,385,739,993,1090,1165],[304,385,739,993,1090,1165],[305,386,740,994,1091,1166],[305,386,740,994,1091,1166],[306,387,740,995,1092,1167],[306,387,740,995,1092,1167],[306,387,740,995,1092,1167],[307,388,742,996,1094,1168],[307,388,742,996,1094,1168],[308,388,742,996,1095,1169],[308,388,742,996,1095,1169],[308,388,742,996,1095,1169],[309,389,743,998,1096,1170],[309,389,743,998,1096,1170],[309,389,743,998,1096,1170],[309,389,743,998,1096,1170],[309,389,743,998,1096,1170],[310,390,744,1000,1098,1171],[310,390,744,1000,1098,1171],[310,390,744,1000,1098,1171],[310,390,744,1000,1098,1171],[311,390,745,1002,1099,1172],[311,390,745,1002,1099,1172]],[[311,390,746,1002,1100,1172],[311,390,746,1002,1100,1172],[311,390,746,1002,1100,1172],[311,390,746,1002,1100,1172],[311,390,746,1002,1100,1172],[311,390,746,1002,1100,1172],[311,389,746,1003,1101,1173],[311,389,746,1003,1101,1173],[311,389,746,1003,1101,1173],[311,389,746,1003,1101,1173],[311,389,746,1003,1101,1173],[311,389,746,1003,1101,1173],[311,388,746,1004,1102,1173],[311,388,746,1004,1102,1173],[311,388,746,1004,1102,1173],[311,388,746,1004,1102,1173],[311,388,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[311,387,746,1004,1102,1173],[309,385,745,1003,1103,1173],[309,385,745,1003,1103,1173],[309,385,745,1003,1103,1173],[309,385,745,1003,1103,1173],[309,385,745,1003,1103,1173]],[[308,384,744,1003,1102,1172],[308,384,744,1003,1102,1172],[308,384,744,1003,1102,1172],[308,384,744,1003,1102,1172],[306,382,743,1002,1102,1172],[306,382,743,1002,1102,1172],[306,382,743,1002,1102,1172],[306,382,743,1002,1102,1172],[306,382,743,1002,1102,1172],[304,380,742,1001,1102,1172],[304,380,742,1001,1102,1172],[304,380,742,1001,1102,1172],[304,380,742,1001,1102,1172],[303,378,741,1000,1102,1171],[303,378,741,1000,1102,1171],[303,378,741,1000,1102,1171],[303,378,741,1000,1102,1171],[303,378,741,1000,1102,1171],[301,376,740,998,1102,1171],[301,376,740,998,1102,1171],[299,374,739,997,1101,1171],[299,374,739,997,1101,1171],[299,374,739,997,1101,1171],[299,374,739,997,1101,1171],[297,373,738,996,1101,1171],[297,373,738,996,1101,1171],[297,373,738,996,1101,1171],[296,371,737,994,1101,1170],[296,371,737,994,1101,1170],[296,371,737,994,1101,1170],[294,370,736,993,1100,1170]],[[294,370,736,993,1100,1170],[294,370,736,993,1100,1170],[292,368,735,992,1100,1170],[292,368,735,992,1100,1170],[292,368,735,992,1100,1170],[290,367,734,990,1099,1170],[290,367,734,990,1099,1170],[290,367,734,990,1099,1170],[290,367,734,990,1099,1170],[290,367,734,990,1099,1170],[290,367,734,990,1099,1170],[288,365,733,990,1099,1170],[288,365,733,990,1099,1170],[288,365,733,990,1099,1170],[286,363,732,991,1099,1170],[286,363,732,991,1099,1170],[286,363,732,991,1099,1170],[286,363,732,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[284,361,731,991,1099,1170],[281,359,730,991,1099,1170],[281,359,730,991,1099,1170],[281,359,730,991,1099,1170],[281,359,730,991,1099,1170],[281,359,730,991,1099,1170],[279,357,729,992,1099,1170]],[[279,357,729,992,1099,1171],[279,357,729,992,1099,1171],[279,357,729,992,1099,1171],[277,357,729,993,1099,1172],[277,357,729,993,1099,1172],[277,357,729,993,1099,1172],[277,357,729,993,1099,1172],[277,357,729,993,1099,1172],[275,355,728,994,1100,1172],[275,355,728,994,1100,1172],[275,355,728,994,1100,1172],[275,355,728,994,1100,1172],[275,355,728,994,1100,1172],[275,355,728,994,1100,1172],[274,354,728,994,1100,1174],[274,354,728,994,1100,1174],[274,354,728,994,1100,1174],[274,354,728,994,1100,1174],[274,354,728,994,1100,1174],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[273,354,728,995,1101,1176],[272,353,729,997,1102,1178],[272,353,729,997,1102,1178],[272,353,729,997,1102,1178],[272,354,729,998,1103,1179],[272,354,729,998,1103,1179],[272,354,729,998,1103,1179]],[[272,354,730,998,1104,1180],[272,354,730,998,1104,1180],[272,354,730,998,1104,1180],[272,354,730,998,1104,1180],[272,354,730,998,1104,1180],[272,354,730,998,1104,1180],[271,354,731,1000,1105,1182],[271,354,731,1000,1105,1182],[271,354,731,1000,1105,1182],[271,354,731,1000,1105,1182],[271,355,731,1001,1106,1183],[271,355,731,1001,1106,1183],[271,355,731,1001,1106,1183],[271,355,731,1001,1106,1183],[272,355,732,1001,1107,1184],[272,355,732,1001,1107,1184],[272,355,732,1001,1107,1184],[272,356,733,1002,1108,1184],[272,356,733,1002,1108,1184],[272,356,733,1002,1108,1184],[273,357,734,1003,1109,1185],[273,357,734,1003,1109,1185],[273,357,734,1003,1109,1185],[273,357,734,1003,1109,1185],[273,357,734,1003,1109,1185],[274,358,735,1004,1110,1187],[274,358,735,1004,1110,1187],[274,358,735,1004,1110,1187],[274,358,735,1004,1110,1187],[274,358,735,1004,1110,1187]],[[275,359,736,1005,1111,1187],[275,359,736,1005,1111,1187],[275,359,736,1005,1111,1187],[275,359,736,1005,1111,1187],[275,359,736,1005,1111,1187],[275,359,736,1005,1111,1187],[277,360,737,1006,1112,1188],[277,360,737,1006,1112,1188],[277,360,737,1006,1112,1188],[277,360,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[279,361,737,1006,1112,1188],[281,363,738,1006,1112,1187],[281,363,738,1006,1112,1187],[281,363,738,1006,1112,1187],[281,363,738,1006,1112,1187],[281,363,738,1006,1112,1187],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[282,363,738,1005,1111,1186],[283,364,738,1004,1111,1184],[283,364,738,1004,1111,1184]],[[283,364,738,1004,1111,1184],[283,364,738,1004,1111,1184],[283,364,738,1004,1111,1184],[283,364,738,1004,1111,1184],[285,365,738,1003,1109,1183],[285,365,738,1003,1109,1183],[285,365,738,1003,1109,1183],[285,365,738,1003,1109,1183],[285,365,738,1003,1109,1183],[285,364,737,1001,1107,1180],[285,364,737,1001,1107,1180],[285,364,737,1001,1107,1180],[285,364,737,1001,1107,1180],[285,364,737,1001,1107,1180],[286,364,736,999,1106,1178],[286,364,736,999,1106,1178],[286,364,736,999,1106,1178],[286,364,736,999,1106,1178],[286,364,736,999,1106,1178],[286,364,735,997,1104,1176],[286,364,735,997,1104,1176],[286,364,735,997,1104,1176],[286,364,735,997,1104,1176],[286,364,734,994,1102,1174],[286,364,734,994,1102,1174],[286,364,734,994,1102,1174],[287,364,733,993,1101,1172],[287,364,733,993,1101,1172],[287,364,733,993,1101,1172],[287,363,733,991,1099,1171],[287,363,733,991,1099,1171]],[[287,363,733,991,1099,1170],[287,363,732,989,1098,1168],[287,363,732,989,1098,1168],[287,363,732,989,1098,1168],[287,363,731,987,1096,1167],[287,363,731,987,1096,1167],[287,363,731,987,1096,1167],[287,363,731,987,1096,1167],[286,362,729,986,1094,1165],[286,362,729,986,1094,1165],[286,362,729,986,1094,1165],[286,362,728,985,1093,1163],[286,362,728,985,1093,1163],[286,362,728,985,1093,1163],[285,361,727,984,1091,1161],[285,361,727,984,1091,1161],[285,361,727,984,1091,1161],[285,360,726,984,1089,1159],[285,360,726,984,1089,1159],[285,360,726,984,1089,1159],[285,360,726,984,1089,1159],[285,360,726,984,1089,1159],[284,360,724,983,1087,1157],[284,360,724,983,1087,1157],[284,360,724,983,1087,1157],[284,360,724,983,1087,1157],[284,359,723,981,1085,1154],[284,359,723,981,1085,1154],[284,359,723,981,1085,1154],[284,359,723,981,1085,1154]],[[283,359,722,980,1083,1152],[283,359,722,980,1083,1152],[283,358,721,980,1081,1151],[283,358,721,980,1081,1151],[283,358,721,980,1081,1151],[283,358,721,980,1081,1151],[282,358,720,979,1079,1149],[282,358,720,979,1079,1149],[282,358,719,978,1078,1148],[282,358,719,978,1078,1148],[282,358,719,978,1078,1148],[282,358,719,978,1078,1148],[282,358,719,978,1078,1148],[281,357,718,976,1076,1146],[281,357,718,976,1076,1146],[281,357,718,976,1076,1146],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,717,975,1075,1145],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144],[281,357,716,975,1073,1144]],[[281,359,716,974,1071,1143],[281,359,716,974,1071,1143],[281,359,716,974,1071,1143],[281,359,716,974,1071,1143],[281,359,716,974,1071,1143],[281,359,716,974,1071,1143],[281,359,716,974,1071,1143],[281,360,716,973,1070,1142],[281,360,716,973,1070,1142],[281,360,716,973,1070,1142],[281,360,716,973,1070,1142],[281,360,716,973,1070,1142],[281,360,716,973,1070,1142],[281,360,716,973,1070,1142],[281,360,716,973,1070,1142],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[282,362,717,973,1070,1143],[283,363,718,973,1071,1144],[283,363,718,973,1071,1144],[283,363,718,973,1071,1144],[285,365,719,974,1071,1145],[285,365,719,974,1071,1145],[285,365,719,974,1071,1145],[285,366,720,974,1072,1146],[285,366,720,974,1072,1146],[285,366,720,974,1072,1146]],[[287,368,721,976,1073,1147],[287,368,721,976,1073,1147],[287,368,721,976,1073,1147],[288,369,722,977,1074,1148],[288,369,722,977,1074,1148],[288,369,722,977,1074,1148],[289,370,724,977,1075,1149],[289,370,724,977,1075,1149],[289,370,724,977,1075,1149],[290,372,725,978,1076,1151],[290,372,725,978,1076,1151],[291,373,726,980,1077,1152],[291,373,726,980,1077,1152],[291,373,726,980,1077,1152],[293,375,727,981,1078,1154],[293,375,727,981,1078,1154],[294,375,728,982,1079,1154],[294,375,728,982,1079,1154],[294,376,729,982,1080,1155],[294,376,729,982,1080,1155],[296,378,730,984,1081,1156],[296,378,731,984,1082,1157],[296,378,731,984,1082,1157],[296,378,731,984,1082,1157],[296,378,731,984,1082,1157],[297,380,733,985,1083,1158],[297,380,733,985,1083,1158],[299,381,734,987,1084,1159],[299,381,734,987,1084,1159],[300,381,735,988,1085,1160],[300,381,735,988,1085,1160]]]
+
+--- prayer_api/data_lk/shafi.colombo.json ---
+
+[[[300,382,735,936,1087,1161],[300,382,735,936,1087,1161],[300,382,735,936,1087,1161],[302,384,737,938,1089,1163],[302,384,737,938,1089,1163],[302,384,737,938,1089,1163],[303,385,738,939,1090,1164],[303,385,738,939,1090,1164],[304,385,739,940,1091,1165],[304,385,739,940,1091,1165],[305,386,740,941,1092,1166],[305,386,740,941,1092,1166],[306,387,740,942,1092,1167],[306,387,740,942,1092,1167],[306,387,740,942,1092,1167],[307,388,742,944,1094,1168],[307,388,742,944,1094,1168],[308,388,742,944,1095,1169],[308,388,742,944,1095,1169],[308,388,742,944,1095,1169],[309,389,743,945,1096,1170],[309,389,743,945,1096,1170],[309,389,743,945,1096,1170],[309,389,743,945,1096,1170],[309,389,743,945,1096,1170],[310,390,744,947,1098,1171],[310,390,744,947,1098,1171],[310,390,744,947,1098,1171],[310,390,744,947,1098,1171],[311,390,745,947,1099,1172],[311,390,745,947,1099,1172]],[[311,390,746,948,1101,1172],[311,390,746,948,1101,1172],[311,390,746,948,1101,1172],[311,390,746,948,1101,1172],[311,390,746,948,1101,1172],[311,390,746,948,1101,1172],[311,389,746,948,1102,1173],[311,389,746,948,1102,1173],[311,389,746,948,1102,1173],[311,389,746,948,1102,1173],[311,389,746,948,1102,1173],[311,389,746,948,1102,1173],[311,388,746,947,1102,1173],[311,388,746,947,1102,1173],[311,388,746,947,1102,1173],[311,388,746,947,1102,1173],[311,388,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[309,385,745,945,1103,1173],[309,385,745,945,1103,1173],[309,385,745,945,1103,1173],[309,385,745,945,1103,1173],[309,385,745,945,1103,1173]],[[308,384,744,942,1103,1172],[308,384,744,942,1103,1172],[308,384,744,942,1103,1172],[308,384,744,942,1103,1172],[306,382,743,941,1103,1172],[306,382,743,941,1103,1172],[306,382,743,941,1103,1172],[306,382,743,941,1103,1172],[306,382,743,941,1103,1172],[304,380,742,938,1103,1172],[304,380,742,938,1103,1172],[304,380,742,938,1103,1172],[304,380,742,938,1102,1172],[303,378,741,935,1102,1171],[303,378,741,935,1102,1171],[303,378,741,935,1102,1171],[303,378,741,935,1102,1171],[303,378,741,935,1102,1171],[301,376,740,933,1102,1171],[301,376,740,933,1102,1171],[299,374,739,931,1101,1171],[299,374,739,931,1101,1171],[299,374,739,931,1101,1171],[299,374,739,931,1101,1171],[297,373,738,928,1101,1171],[297,373,738,928,1101,1171],[297,373,738,928,1101,1171],[296,371,737,925,1101,1170],[296,371,737,925,1101,1170],[296,371,737,925,1101,1170],[294,370,736,922,1100,1170]],[[294,370,736,922,1101,1170],[294,370,736,922,1101,1170],[292,368,735,919,1101,1170],[292,368,735,919,1101,1170],[292,368,735,919,1101,1170],[290,367,734,916,1100,1170],[290,367,734,916,1100,1170],[290,367,734,916,1100,1170],[290,367,734,916,1100,1170],[290,367,734,916,1100,1170],[290,367,734,916,1100,1170],[288,365,733,917,1100,1170],[288,365,733,917,1099,1170],[288,365,733,917,1099,1170],[286,363,732,919,1099,1170],[286,363,732,919,1099,1170],[286,363,732,919,1099,1170],[286,363,732,919,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[281,359,730,923,1099,1170],[281,359,730,923,1099,1170],[281,359,730,923,1099,1170],[281,359,730,923,1099,1170],[281,359,730,923,1099,1170],[279,357,729,925,1099,1170]],[[279,357,729,925,1100,1171],[279,357,729,925,1100,1171],[279,357,729,925,1100,1171],[277,357,729,927,1100,1172],[277,357,729,927,1100,1172],[277,357,729,927,1100,1172],[277,357,729,927,1100,1172],[277,357,729,927,1100,1172],[275,355,728,928,1101,1172],[275,355,728,928,1101,1172],[275,355,728,928,1101,1172],[275,355,728,928,1101,1172],[275,355,728,928,1100,1172],[275,355,728,928,1100,1172],[274,354,728,930,1100,1174],[274,354,728,930,1100,1174],[274,354,728,930,1100,1174],[274,354,728,930,1100,1174],[274,354,728,930,1100,1174],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[272,353,729,934,1102,1178],[272,353,729,934,1102,1178],[272,353,729,934,1102,1178],[272,354,729,935,1103,1179],[272,354,729,935,1103,1179],[272,354,729,935,1103,1179]],[[272,354,730,936,1105,1180],[272,354,730,936,1105,1180],[272,354,730,936,1105,1180],[272,354,730,936,1105,1180],[272,354,730,936,1105,1180],[272,354,730,936,1105,1180],[271,354,731,938,1106,1182],[271,354,731,938,1106,1182],[271,354,731,938,1106,1182],[271,354,731,938,1106,1182],[271,355,731,939,1107,1183],[271,355,731,939,1107,1183],[271,355,731,939,1106,1183],[271,355,731,939,1106,1183],[272,355,732,939,1107,1184],[272,355,732,939,1107,1184],[272,355,732,939,1107,1184],[272,356,733,940,1108,1184],[272,356,733,940,1108,1184],[272,356,733,940,1108,1184],[273,357,734,941,1109,1185],[273,357,734,941,1109,1185],[273,357,734,941,1109,1185],[273,357,734,941,1109,1185],[273,357,734,941,1109,1185],[274,358,735,942,1110,1187],[274,358,735,942,1110,1187],[274,358,735,942,1110,1187],[274,358,735,942,1110,1187],[274,358,735,942,1110,1187]],[[275,359,736,943,1112,1187],[275,359,736,943,1112,1187],[275,359,736,943,1112,1187],[275,359,736,943,1112,1187],[275,359,736,943,1112,1187],[275,359,736,943,1112,1187],[277,360,737,944,1113,1188],[277,360,737,944,1113,1188],[277,360,737,944,1113,1188],[277,360,737,944,1113,1188],[279,361,737,944,1113,1188],[279,361,737,944,1113,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[281,363,738,943,1112,1187],[281,363,738,943,1112,1187],[281,363,738,943,1112,1187],[281,363,738,943,1112,1187],[281,363,738,943,1112,1187],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[283,364,738,940,1111,1184],[283,364,738,940,1111,1184]],[[283,364,738,940,1112,1184],[283,364,738,940,1112,1184],[283,364,738,940,1112,1184],[283,364,738,940,1112,1184],[285,365,738,938,1110,1183],[285,365,738,938,1110,1183],[285,365,738,938,1110,1183],[285,365,738,938,1110,1183],[285,365,738,938,1110,1183],[285,364,737,935,1108,1180],[285,364,737,935,1108,1180],[285,364,737,935,1108,1180],[285,364,737,935,1107,1180],[285,364,737,935,1107,1180],[286,364,736,931,1106,1178],[286,364,736,931,1106,1178],[286,364,736,931,1106,1178],[286,364,736,931,1106,1178],[286,364,736,931,1106,1178],[286,364,735,928,1104,1176],[286,364,735,928,1104,1176],[286,364,735,928,1104,1176],[286,364,735,928,1104,1176],[286,364,734,925,1102,1174],[286,364,734,925,1102,1174],[286,364,734,925,1102,1174],[287,364,733,922,1101,1172],[287,364,733,922,1101,1172],[287,364,733,922,1101,1172],[287,363,733,919,1099,1171],[287,363,733,919,1099,1171]],[[287,363,733,919,1100,1170],[287,363,732,916,1099,1168],[287,363,732,916,1099,1168],[287,363,732,916,1099,1168],[287,363,731,913,1097,1167],[287,363,731,913,1097,1167],[287,363,731,913,1097,1167],[287,363,731,913,1097,1167],[286,362,729,913,1095,1165],[286,362,729,913,1095,1165],[286,362,729,913,1095,1165],[286,362,728,914,1094,1163],[286,362,728,914,1093,1163],[286,362,728,914,1093,1163],[285,361,727,914,1091,1161],[285,361,727,914,1091,1161],[285,361,727,914,1091,1161],[285,360,726,915,1089,1159],[285,360,726,915,1089,1159],[285,360,726,915,1089,1159],[285,360,726,915,1089,1159],[285,360,726,915,1089,1159],[284,360,724,916,1087,1157],[284,360,724,916,1087,1157],[284,360,724,916,1087,1157],[284,360,724,916,1087,1157],[284,359,723,916,1085,1154],[284,359,723,916,1085,1154],[284,359,723,916,1085,1154],[284,359,723,916,1085,1154]],[[283,359,722,916,1084,1152],[283,359,722,916,1084,1152],[283,358,721,916,1082,1151],[283,358,721,916,1082,1151],[283,358,721,916,1082,1151],[283,358,721,916,1082,1151],[282,358,720,916,1080,1149],[282,358,720,916,1080,1149],[282,358,719,916,1079,1148],[282,358,719,916,1079,1148],[282,358,719,916,1079,1148],[282,358,719,916,1079,1148],[282,358,719,916,1078,1148],[281,357,718,916,1076,1146],[281,357,718,916,1076,1146],[281,357,718,916,1076,1146],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144]],[[281,359,716,917,1072,1143],[281,359,716,917,1072,1143],[281,359,716,917,1072,1143],[281,359,716,917,1072,1143],[281,359,716,917,1072,1143],[281,359,716,917,1072,1143],[281,359,716,917,1072,1143],[281,360,716,918,1071,1142],[281,360,716,918,1071,1142],[281,360,716,918,1071,1142],[281,360,716,918,1071,1142],[281,360,716,918,1071,1142],[281,360,716,918,1070,1142],[281,360,716,918,1070,1142],[281,360,716,918,1070,1142],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[283,363,718,920,1071,1144],[283,363,718,920,1071,1144],[283,363,718,920,1071,1144],[285,365,719,921,1071,1145],[285,365,719,921,1071,1145],[285,365,719,921,1071,1145],[285,366,720,922,1072,1146],[285,366,720,922,1072,1146],[285,366,720,922,1072,1146]],[[287,368,721,923,1074,1147],[287,368,721,923,1074,1147],[287,368,721,923,1074,1147],[288,369,722,924,1075,1148],[288,369,722,924,1075,1148],[288,369,722,924,1075,1148],[289,370,724,925,1076,1149],[289,370,724,925,1076,1149],[289,370,724,925,1076,1149],[290,372,725,926,1077,1151],[290,372,725,926,1077,1151],[291,373,726,928,1078,1152],[291,373,726,928,1077,1152],[291,373,726,928,1077,1152],[293,375,727,929,1078,1154],[293,375,727,929,1078,1154],[294,375,728,930,1079,1154],[294,375,728,930,1079,1154],[294,376,729,930,1080,1155],[294,376,729,930,1080,1155],[296,378,730,932,1081,1156],[296,378,731,932,1082,1157],[296,378,731,932,1082,1157],[296,378,731,932,1082,1157],[296,378,731,932,1082,1157],[297,380,733,933,1083,1158],[297,380,733,933,1083,1158],[299,381,734,935,1084,1159],[299,381,734,935,1084,1159],[300,381,735,936,1085,1160],[300,381,735,936,1085,1160]]]
+
+--- prayer_api/data_lk/shafi.others.json ---
+
+[[[300,382,735,936,1086,1161],[300,382,735,936,1086,1161],[300,382,735,936,1086,1161],[302,384,737,938,1088,1163],[302,384,737,938,1088,1163],[302,384,737,938,1088,1163],[303,385,738,939,1089,1164],[303,385,738,939,1089,1164],[304,385,739,940,1090,1165],[304,385,739,940,1090,1165],[305,386,740,941,1091,1166],[305,386,740,941,1091,1166],[306,387,740,942,1092,1167],[306,387,740,942,1092,1167],[306,387,740,942,1092,1167],[307,388,742,944,1094,1168],[307,388,742,944,1094,1168],[308,388,742,944,1095,1169],[308,388,742,944,1095,1169],[308,388,742,944,1095,1169],[309,389,743,945,1096,1170],[309,389,743,945,1096,1170],[309,389,743,945,1096,1170],[309,389,743,945,1096,1170],[309,389,743,945,1096,1170],[310,390,744,947,1098,1171],[310,390,744,947,1098,1171],[310,390,744,947,1098,1171],[310,390,744,947,1098,1171],[311,390,745,947,1099,1172],[311,390,745,947,1099,1172]],[[311,390,746,948,1100,1172],[311,390,746,948,1100,1172],[311,390,746,948,1100,1172],[311,390,746,948,1100,1172],[311,390,746,948,1100,1172],[311,390,746,948,1100,1172],[311,389,746,948,1101,1173],[311,389,746,948,1101,1173],[311,389,746,948,1101,1173],[311,389,746,948,1101,1173],[311,389,746,948,1101,1173],[311,389,746,948,1101,1173],[311,388,746,947,1102,1173],[311,388,746,947,1102,1173],[311,388,746,947,1102,1173],[311,388,746,947,1102,1173],[311,388,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[311,387,746,947,1102,1173],[309,385,745,945,1103,1173],[309,385,745,945,1103,1173],[309,385,745,945,1103,1173],[309,385,745,945,1103,1173],[309,385,745,945,1103,1173]],[[308,384,744,942,1102,1172],[308,384,744,942,1102,1172],[308,384,744,942,1102,1172],[308,384,744,942,1102,1172],[306,382,743,941,1102,1172],[306,382,743,941,1102,1172],[306,382,743,941,1102,1172],[306,382,743,941,1102,1172],[306,382,743,941,1102,1172],[304,380,742,938,1102,1172],[304,380,742,938,1102,1172],[304,380,742,938,1102,1172],[304,380,742,938,1102,1172],[303,378,741,935,1102,1171],[303,378,741,935,1102,1171],[303,378,741,935,1102,1171],[303,378,741,935,1102,1171],[303,378,741,935,1102,1171],[301,376,740,933,1102,1171],[301,376,740,933,1102,1171],[299,374,739,931,1101,1171],[299,374,739,931,1101,1171],[299,374,739,931,1101,1171],[299,374,739,931,1101,1171],[297,373,738,928,1101,1171],[297,373,738,928,1101,1171],[297,373,738,928,1101,1171],[296,371,737,925,1101,1170],[296,371,737,925,1101,1170],[296,371,737,925,1101,1170],[294,370,736,922,1100,1170]],[[294,370,736,922,1100,1170],[294,370,736,922,1100,1170],[292,368,735,919,1100,1170],[292,368,735,919,1100,1170],[292,368,735,919,1100,1170],[290,367,734,916,1099,1170],[290,367,734,916,1099,1170],[290,367,734,916,1099,1170],[290,367,734,916,1099,1170],[290,367,734,916,1099,1170],[290,367,734,916,1099,1170],[288,365,733,917,1099,1170],[288,365,733,917,1099,1170],[288,365,733,917,1099,1170],[286,363,732,919,1099,1170],[286,363,732,919,1099,1170],[286,363,732,919,1099,1170],[286,363,732,919,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[284,361,731,921,1099,1170],[281,359,730,923,1099,1170],[281,359,730,923,1099,1170],[281,359,730,923,1099,1170],[281,359,730,923,1099,1170],[281,359,730,923,1099,1170],[279,357,729,925,1099,1170]],[[279,357,729,925,1099,1171],[279,357,729,925,1099,1171],[279,357,729,925,1099,1171],[277,357,729,927,1099,1172],[277,357,729,927,1099,1172],[277,357,729,927,1099,1172],[277,357,729,927,1099,1172],[277,357,729,927,1099,1172],[275,355,728,928,1100,1172],[275,355,728,928,1100,1172],[275,355,728,928,1100,1172],[275,355,728,928,1100,1172],[275,355,728,928,1100,1172],[275,355,728,928,1100,1172],[274,354,728,930,1100,1174],[274,354,728,930,1100,1174],[274,354,728,930,1100,1174],[274,354,728,930,1100,1174],[274,354,728,930,1100,1174],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[273,354,728,932,1101,1176],[272,353,729,934,1102,1178],[272,353,729,934,1102,1178],[272,353,729,934,1102,1178],[272,354,729,935,1103,1179],[272,354,729,935,1103,1179],[272,354,729,935,1103,1179]],[[272,354,730,936,1104,1180],[272,354,730,936,1104,1180],[272,354,730,936,1104,1180],[272,354,730,936,1104,1180],[272,354,730,936,1104,1180],[272,354,730,936,1104,1180],[271,354,731,938,1105,1182],[271,354,731,938,1105,1182],[271,354,731,938,1105,1182],[271,354,731,938,1105,1182],[271,355,731,939,1106,1183],[271,355,731,939,1106,1183],[271,355,731,939,1106,1183],[271,355,731,939,1106,1183],[272,355,732,939,1107,1184],[272,355,732,939,1107,1184],[272,355,732,939,1107,1184],[272,356,733,940,1108,1184],[272,356,733,940,1108,1184],[272,356,733,940,1108,1184],[273,357,734,941,1109,1185],[273,357,734,941,1109,1185],[273,357,734,941,1109,1185],[273,357,734,941,1109,1185],[273,357,734,941,1109,1185],[274,358,735,942,1110,1187],[274,358,735,942,1110,1187],[274,358,735,942,1110,1187],[274,358,735,942,1110,1187],[274,358,735,942,1110,1187]],[[275,359,736,943,1111,1187],[275,359,736,943,1111,1187],[275,359,736,943,1111,1187],[275,359,736,943,1111,1187],[275,359,736,943,1111,1187],[275,359,736,943,1111,1187],[277,360,737,944,1112,1188],[277,360,737,944,1112,1188],[277,360,737,944,1112,1188],[277,360,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[279,361,737,944,1112,1188],[281,363,738,943,1112,1187],[281,363,738,943,1112,1187],[281,363,738,943,1112,1187],[281,363,738,943,1112,1187],[281,363,738,943,1112,1187],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[282,363,738,942,1111,1186],[283,364,738,940,1111,1184],[283,364,738,940,1111,1184]],[[283,364,738,940,1111,1184],[283,364,738,940,1111,1184],[283,364,738,940,1111,1184],[283,364,738,940,1111,1184],[285,365,738,938,1109,1183],[285,365,738,938,1109,1183],[285,365,738,938,1109,1183],[285,365,738,938,1109,1183],[285,365,738,938,1109,1183],[285,364,737,935,1107,1180],[285,364,737,935,1107,1180],[285,364,737,935,1107,1180],[285,364,737,935,1107,1180],[285,364,737,935,1107,1180],[286,364,736,931,1106,1178],[286,364,736,931,1106,1178],[286,364,736,931,1106,1178],[286,364,736,931,1106,1178],[286,364,736,931,1106,1178],[286,364,735,928,1104,1176],[286,364,735,928,1104,1176],[286,364,735,928,1104,1176],[286,364,735,928,1104,1176],[286,364,734,925,1102,1174],[286,364,734,925,1102,1174],[286,364,734,925,1102,1174],[287,364,733,922,1101,1172],[287,364,733,922,1101,1172],[287,364,733,922,1101,1172],[287,363,733,919,1099,1171],[287,363,733,919,1099,1171]],[[287,363,733,919,1099,1170],[287,363,732,916,1098,1168],[287,363,732,916,1098,1168],[287,363,732,916,1098,1168],[287,363,731,913,1096,1167],[287,363,731,913,1096,1167],[287,363,731,913,1096,1167],[287,363,731,913,1096,1167],[286,362,729,913,1094,1165],[286,362,729,913,1094,1165],[286,362,729,913,1094,1165],[286,362,728,914,1093,1163],[286,362,728,914,1093,1163],[286,362,728,914,1093,1163],[285,361,727,914,1091,1161],[285,361,727,914,1091,1161],[285,361,727,914,1091,1161],[285,360,726,915,1089,1159],[285,360,726,915,1089,1159],[285,360,726,915,1089,1159],[285,360,726,915,1089,1159],[285,360,726,915,1089,1159],[284,360,724,916,1087,1157],[284,360,724,916,1087,1157],[284,360,724,916,1087,1157],[284,360,724,916,1087,1157],[284,359,723,916,1085,1154],[284,359,723,916,1085,1154],[284,359,723,916,1085,1154],[284,359,723,916,1085,1154]],[[283,359,722,916,1083,1152],[283,359,722,916,1083,1152],[283,358,721,916,1081,1151],[283,358,721,916,1081,1151],[283,358,721,916,1081,1151],[283,358,721,916,1081,1151],[282,358,720,916,1079,1149],[282,358,720,916,1079,1149],[282,358,719,916,1078,1148],[282,358,719,916,1078,1148],[282,358,719,916,1078,1148],[282,358,719,916,1078,1148],[282,358,719,916,1078,1148],[281,357,718,916,1076,1146],[281,357,718,916,1076,1146],[281,357,718,916,1076,1146],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,717,916,1075,1145],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144],[281,357,716,917,1073,1144]],[[281,359,716,917,1071,1143],[281,359,716,917,1071,1143],[281,359,716,917,1071,1143],[281,359,716,917,1071,1143],[281,359,716,917,1071,1143],[281,359,716,917,1071,1143],[281,359,716,917,1071,1143],[281,360,716,918,1070,1142],[281,360,716,918,1070,1142],[281,360,716,918,1070,1142],[281,360,716,918,1070,1142],[281,360,716,918,1070,1142],[281,360,716,918,1070,1142],[281,360,716,918,1070,1142],[281,360,716,918,1070,1142],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[282,362,717,919,1070,1143],[283,363,718,920,1071,1144],[283,363,718,920,1071,1144],[283,363,718,920,1071,1144],[285,365,719,921,1071,1145],[285,365,719,921,1071,1145],[285,365,719,921,1071,1145],[285,366,720,922,1072,1146],[285,366,720,922,1072,1146],[285,366,720,922,1072,1146]],[[287,368,721,923,1073,1147],[287,368,721,923,1073,1147],[287,368,721,923,1073,1147],[288,369,722,924,1074,1148],[288,369,722,924,1074,1148],[288,369,722,924,1074,1148],[289,370,724,925,1075,1149],[289,370,724,925,1075,1149],[289,370,724,925,1075,1149],[290,372,725,926,1076,1151],[290,372,725,926,1076,1151],[291,373,726,928,1077,1152],[291,373,726,928,1077,1152],[291,373,726,928,1077,1152],[293,375,727,929,1078,1154],[293,375,727,929,1078,1154],[294,375,728,930,1079,1154],[294,375,728,930,1079,1154],[294,376,729,930,1080,1155],[294,376,729,930,1080,1155],[296,378,730,932,1081,1156],[296,378,731,932,1082,1157],[296,378,731,932,1082,1157],[296,378,731,932,1082,1157],[296,378,731,932,1082,1157],[297,380,733,933,1083,1158],[297,380,733,933,1083,1158],[299,381,734,935,1084,1159],[299,381,734,935,1084,1159],[300,381,735,936,1085,1160],[300,381,735,936,1085,1160]]]
+
+--- prayer_api/settings.py ---
+
+"""
+Django settings for prayer_api project.
+
+Generated by 'django-admin startproject' using Django 5.2.6.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.2/topics/settings/
+
+For the full list of settings and their values, see
+https://docs.djangoproject.com/en/5.2/ref/settings/
+"""
+
+from pathlib import Path
+
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Quick-start development settings - unsuitable for production
+# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = 'django-insecure-(6ui9%tcp)jz5%=068ip4v#^!kp@d9=$0#9#%%ng@mly3h=&)6'
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = True
+
+ALLOWED_HOSTS = ['*']
+
+# Application definition
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'rest_framework',
+    'times',
+    'drf_spectacular',
+    'drf_spectacular_sidecar',  # for Swagger UI/Redoc
+]
+
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+ROOT_URLCONF = 'prayer_api.urls'
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = 'prayer_api.wsgi.application'
+
+# Database
+# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+# Password validation
+# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+REST_FRAMEWORK = {
+    "DEFAULT_VERSIONING_CLASS": "rest_framework.versioning.URLPathVersioning",
+    "DEFAULT_VERSION": "v1",
+    "ALLOWED_VERSIONS": ["v1"],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+# Internationalization
+# https://docs.djangoproject.com/en/5.2/topics/i18n/
+
+LANGUAGE_CODE = 'en-us'
+
+TIME_ZONE = 'UTC'
+
+USE_I18N = True
+
+USE_TZ = True
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/5.2/howto/static-files/
+
+STATIC_URL = 'static/'
+
+# Default primary key field type
+# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+--- prayer_api/urls.py ---
+
+"""
+URL configuration for prayer_api project.
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/5.2/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+from django.urls import path, include
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
+urlpatterns = [
+    path('api/v1/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/v1/docs/swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/v1/docs/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    path('api/v1/', include('times.urls')),
+]
+
+
+--- prayer_api/wsgi.py ---
+
+"""
+WSGI config for prayer_api project.
+
+It exposes the WSGI callable as a module-level variable named ``application``.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.2/howto/deployment/wsgi/
+"""
+
+import os
+
+from django.core.wsgi import get_wsgi_application
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'prayer_api.settings')
+
+application = get_wsgi_application()
+
+
+--- requirements.txt ---
+
+��a s g i r e f = = 3 . 9 . 1  
+ a t t r s = = 2 5 . 3 . 0  
+ D j a n g o = = 5 . 2 . 6  
+ d j a n g o r e s t f r a m e w o r k = = 3 . 1 6 . 1  
+ d r f - s p e c t a c u l a r = = 0 . 2 8 . 0  
+ d r f - s p e c t a c u l a r - s i d e c a r = = 2 0 2 5 . 9 . 1  
+ i n f l e c t i o n = = 0 . 5 . 1  
+ j s o n s c h e m a = = 4 . 2 5 . 1  
+ j s o n s c h e m a - s p e c i f i c a t i o n s = = 2 0 2 5 . 9 . 1  
+ p y t z = = 2 0 2 5 . 2  
+ P y Y A M L = = 6 . 0 . 2  
+ r e f e r e n c i n g = = 0 . 3 6 . 2  
+ r p d s - p y = = 0 . 2 7 . 1  
+ s e t u p t o o l s = = 8 0 . 9 . 0  
+ s q l p a r s e = = 0 . 5 . 3  
+ t y p i n g _ e x t e n s i o n s = = 4 . 1 5 . 0  
+ t z d a t a = = 2 0 2 5 . 2  
+ u r i t e m p l a t e = = 4 . 2 . 0  
+ w h e e l = = 0 . 4 5 . 1  
+ g u n i c o r n > = 2 1  
+ 
+
+--- times/__init__.py ---
+
+
+
+--- times/admin.py ---
+
+from django.contrib import admin
+
+# Register your models here.
+
+
+--- times/apps.py ---
+
+from django.apps import AppConfig
+
+
+class TimesConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'times'
+
+
+--- times/datamodels.py ---
+
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Dict, Optional
+
+
+@dataclass
+class PrayerTimes:
+    date: date
+    madhab: str
+    city: str
+    fajr: str
+    sunrise: str
+    dhuhr: str
+    asr: str
+    maghrib: str
+    isha: str
+    tahajjud: Optional[str] = None
+    midnight: Optional[str] = None
+
+    @property
+    def times(self) -> Dict[str, str]:
+        base = {
+            'fajr': self.fajr,
+            'sunrise': self.sunrise,
+            'dhuhr': self.dhuhr,
+            'asr': self.asr,
+            'maghrib': self.maghrib,
+            'isha': self.isha,
+        }
+
+        if self.tahajjud:
+            base['tahajjud'] = self.tahajjud
+        if self.midnight:
+            base['midnight'] = self.midnight
+        return base
+
+
+    def as_dict(self) -> Dict[str, str]:
+        return self.times
+
+
+@dataclass
+class PrayerEvent:
+    """Represents a single prayer event relative to a given datetime."""
+    given_datetime: datetime
+    name: str
+    time: datetime
+    madhab: str
+    city: str
+
+
+--- times/migrations/__init__.py ---
+
+
+
+--- times/models.py ---
+
+from django.db import models
+
+# Create your models here.
+
+
+--- times/serializers.py ---
+
+from rest_framework import serializers
+
+
+class PrayerTimesSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    madhab = serializers.CharField()
+    city = serializers.CharField()
+    times = serializers.DictField(
+        child=serializers.CharField(),
+        help_text='Mapping of prayer name -> time (HH:MM)'
+    )
+
+
+class PrayerEventSerializer(serializers.Serializer):
+    given_datetime = serializers.DateTimeField(
+        required=False,
+        help_text='Datetime used as the reference point'
+    )
+    madhab = serializers.CharField()
+    city = serializers.CharField()
+    next_prayer = serializers.DictField(
+        child=serializers.CharField(),
+        help_text='Example: {"name": "asr", "time": "15:45"}',
+        required=False
+    )
+    message = serializers.CharField(required=False)
+
+
+class PrayerTimesRangeSerializer(serializers.Serializer):
+    start = serializers.DateField()
+    end = serializers.DateField()
+    madhab = serializers.CharField()
+    city = serializers.CharField()
+    results = PrayerTimesSerializer(many=True)
+
+
+--- times/tests/__init__.py ---
+
+
+
+--- times/tests/test_api.py ---
+
+from datetime import date, datetime
+from rest_framework.test import APITestCase
+from rest_framework import status
+
+
+class TestPrayerTimesAPI(APITestCase):
+
+    def test_today_times_valid(self):
+        response = self.client.get('/api/v1/times/today/', {'madhab': 'shafi', 'city': 'colombo'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data['madhab'], 'shafi')
+        self.assertIn('fajr', data['times'])
+
+    def test_today_times_invalid_madhab(self):
+        response = self.client.get('/api/v1/times/today/', {'madhab': 'maliki', 'city': 'colombo'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.json())
+
+    def test_today_times_invalid_city(self):
+        response = self.client.get('/api/v1/times/today/', {'madhab': 'hanafi', 'city': 'kandy'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.json())
+
+    def test_date_times_valid(self):
+        response = self.client.get('/api/v1/times/date/', {
+            'madhab': 'hanafi', 'city': 'others', 'date': '2025-09-23'
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()['date'], '2025-09-23')
+
+    def test_date_times_invalid_format(self):
+        response = self.client.get('/api/v1/times/date/', {
+            'madhab': 'hanafi', 'city': 'others', 'date': '23-09-2025'
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_date_times_out_of_range(self):
+        # December 32 does not exist
+        response = self.client.get('/api/v1/times/date/', {
+            'madhab': 'shafi', 'city': 'colombo', 'date': '2025-12-32'
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_next_times_valid(self):
+        dt = datetime.now().replace(hour=15, minute=30).isoformat(timespec='minutes')
+        response = self.client.get('/api/v1/times/next/', {
+            'madhab': 'shafi', 'city': 'colombo', 'datetime': dt
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('next_prayer', response.json())
+
+    def test_next_times_invalid_datetime(self):
+        response = self.client.get('/api/v1/times/next/', {
+            'madhab': 'hanafi', 'city': 'colombo', 'datetime': 'notadatetime'
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_range_times_valid(self):
+        response = self.client.get('/api/v1/times/range/', {
+            'madhab': 'shafi', 'city': 'colombo',
+            'start': '2025-09-20', 'end': '2025-09-22'
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()['results']), 3)
+
+    def test_range_times_end_before_start(self):
+        response = self.client.get('/api/v1/times/range/', {
+            'madhab': 'shafi', 'city': 'colombo',
+            'start': '2025-09-23', 'end': '2025-09-20'
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_range_times_missing_params(self):
+        response = self.client.get('/api/v1/times/range/', {
+            'madhab': 'shafi', 'city': 'colombo'
+        })
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_date_times_not_available(self):
+        """Request a date far outside the dataset → should return 404."""
+        response = self.client.get(
+            '/api/v1/times/date/',
+            {'madhab': 'shafi', 'city': 'colombo', 'date': '2100-01-01'}
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.json())
+        self.assertIn('No data available', response.json()['error'])
+
+    def test_next_times_not_available(self):
+        """Request datetime in a year not in JSON → should return 404."""
+        response = self.client.get(
+            '/api/v1/times/next/',
+            {'madhab': 'shafi', 'city': 'colombo', 'datetime': '2100-01-01T12:00'}
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.json())
+
+    def test_range_times_not_available(self):
+        """Request a range that includes dates outside dataset → should include errors in results."""
+        response = self.client.get(
+            '/api/v1/times/range/',
+            {'madhab': 'shafi', 'city': 'colombo', 'start': '2099-12-30', 'end': '2100-01-02'}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data['madhab'], 'shafi')
+        self.assertEqual(data['city'], 'colombo')
+
+        # At least one result should contain an error
+        error_results = [r for r in data['results'] if 'error' in r.get('times', {})]
+        self.assertTrue(len(error_results) > 0)
+
+
+# --- NEW TESTS: Tahajjud -----------------------------------------------------
+
+from times.utils import compute_tahajjud  # pure-function unit test
+
+class TestTahajjud(APITestCase):
+    def test_date_times_includes_tahajjud(self):
+        # Known, stable date in the dataset used elsewhere in tests
+        resp = self.client.get('/api/v1/times/date/', {
+            'madhab': 'shafi',
+            'city': 'colombo',
+            'date': '2025-09-23'
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        self.assertIn('tahajjud', body['times'])
+        # Basic format check HH:MM
+        self.assertRegex(body['times']['tahajjud'], r'^\d{2}:\d{2}$')
+
+    def test_range_times_include_tahajjud_when_available(self):
+        resp = self.client.get('/api/v1/times/range/', {
+            'madhab': 'shafi',
+            'city': 'colombo',
+            'start': '2025-09-20',
+            'end': '2025-09-22'
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.json()
+        for item in data['results']:
+            # Some range entries may be errors for out-of-dataset days in other tests,
+            # so guard accordingly.
+            if 'times' in item and isinstance(item['times'], dict):
+                self.assertIn('tahajjud', item['times'])
+
+    def test_compute_tahajjud_math(self):
+        # Maghrib 18:00, next Fajr 05:00 → night = 11h → last third = 3h40m
+        # Tahajjud start = 05:00 - 3:40 = 01:20
+        self.assertEqual(compute_tahajjud("18:00", "05:00"), "01:20")
+
+
+
+from times.utils import compute_midnight  # pure-function unit test
+
+
+class TestMidnight(APITestCase):
+    def test_date_times_includes_midnight(self):
+        # Stable date used in other tests ensures dataset presence
+        resp = self.client.get('/api/v1/times/date/', {
+            'madhab': 'shafi',
+            'city': 'colombo',
+            'date': '2025-09-23'
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        # New field expected alongside existing ones
+        self.assertIn('midnight', body['times'])
+        self.assertRegex(body['times']['midnight'], r'^\d{2}:\d{2}$')
+
+    def test_range_times_include_midnight_when_available(self):
+        resp = self.client.get('/api/v1/times/range/', {
+            'madhab': 'shafi',
+            'city': 'colombo',
+            'start': '2025-09-20',
+            'end': '2025-09-22'
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.json()
+        for item in data['results']:
+            if 'times' in item and isinstance(item['times'], dict):
+                self.assertIn('midnight', item['times'])
+                self.assertRegex(item['times']['midnight'], r'^\d{2}:\d{2}$')
+
+    def test_compute_midnight_math(self):
+        # Maghrib 18:00 → next Fajr 05:00
+        # Night = 11 hours → half = 5h30m
+        # Midnight (half of the night) = Fajr - 5:30 = 23:30 (previous day clock time)
+        self.assertEqual(compute_midnight("18:00", "05:00"), "23:30")
+
+--- times/urls.py ---
+
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('times/today/', views.today_times),
+    path('times/date/', views.date_times),
+    path('times/next/', views.next_times),
+    path('times/range/', views.range_times),
+]
+
+--- times/utils.py ---
+
+import json
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Dict, Optional
+
+import pytz
+
+from .datamodels import PrayerTimes, PrayerEvent
+
+PRAYERS = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]
+
+BASE_DIR = Path(__file__).resolve().parent.parent  # project root
+DATA_DIR = BASE_DIR / 'prayer_api' / 'data_lk'
+
+LANKA_TZ = pytz.timezone('Asia/Colombo')
+
+# 🔑 Adjust this if your dataset year is fixed (e.g. 2025)
+SUPPORTED_YEAR = date.today().year
+
+
+class PrayerDataNotAvailable(Exception):
+    """Raised when prayer data is not available for the requested date."""
+    pass
+
+
+def load_table(madhab: str, city: str):
+    file_path = DATA_DIR / f"{madhab}.{city}.json"
+    with open(file_path, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def minutes_to_hhmm(minutes: int) -> str:
+    hours = minutes // 60
+    minutes %= 60
+    return f"{hours:02d}:{minutes:02d}"
+
+def hhmm_to_minutes(hhmm: str) -> int:
+    h, m = map(int, hhmm.split(":"))
+    return h * 60 + m
+
+def get_times_for_day(d: date, madhab: str, city: str, *, include_extras: bool = True) -> PrayerTimes:
+    """
+    Look up the prayer times for a given date, madhab, and city.
+
+    - d: Python date object (e.g. date.today())
+    - madhab: "hanafi" or "shafi"
+    - city: "colombo" or "others"
+
+    Raises PrayerDataNotAvailable if the year is not supported.
+    """
+
+    if d.year != SUPPORTED_YEAR:
+        raise PrayerDataNotAvailable(
+            f"No data available for year {d.year} in {madhab}.{city}"
+        )
+
+    table = load_table(madhab, city)
+
+    # Calculating indices for month/day (JSON is zero-based, Python dates are one-based)
+    month_index = d.month - 1
+    day_index = d.day - 1
+
+    try:
+        times_in_minutes = table[month_index][day_index]
+    except IndexError:
+        raise PrayerDataNotAvailable(
+            f"No data available for {d} in {madhab}.{city}"
+        )
+
+    times_dict: Dict[str, str] = {}
+    for i, prayer in enumerate(PRAYERS):
+        minutes = times_in_minutes[i]
+        times_dict[prayer] = minutes_to_hhmm(minutes)
+
+    tahajjud_val = None
+    midnight_val = None
+    if include_extras:
+        try:
+            next_day = d + timedelta(days=1)
+            if next_day.year == SUPPORTED_YEAR:
+                next_prayer_times = get_times_for_day(next_day, madhab, city, include_extras=False)
+                next_fajr_hhmm = next_prayer_times.fajr
+                maghrib_hhmm = times_dict['maghrib']
+                tahajjud_val = compute_tahajjud(maghrib_hhmm, next_fajr_hhmm)
+                midnight_val = compute_midnight(maghrib_hhmm, next_fajr_hhmm)
+        except Exception:
+            # Should only happen when data for next day's prayer times are not available
+            pass
+
+    return PrayerTimes(
+        date=d,
+        madhab=madhab,
+        city=city,
+        tahajjud=tahajjud_val,
+        midnight=midnight_val,
+        **times_dict
+    )
+
+
+def next_prayer(dt: datetime, times: PrayerTimes) -> Optional[PrayerEvent]:
+    if dt.tzinfo is None:
+        dt = LANKA_TZ.localize(dt)
+    else:
+        dt = dt.astimezone(LANKA_TZ)
+
+    for name, hhmm in times.as_dict().items():
+        prayer_dt = LANKA_TZ.localize(
+            datetime.strptime(f'{times.date} {hhmm}', '%Y-%m-%d %H:%M')
+        )
+        if prayer_dt > dt:
+            return PrayerEvent(
+                given_datetime=dt,
+                name=name,
+                time=prayer_dt,
+                madhab=times.madhab,
+                city=times.city,
+            )
+    return None
+
+
+def previous_prayer(dt: datetime, times: PrayerTimes) -> Optional[PrayerEvent]:
+    if dt.tzinfo is None:
+        dt = LANKA_TZ.localize(dt)
+    else:
+        dt = dt.astimezone(LANKA_TZ)
+
+    prev = None
+    for name, hhmm in times.as_dict().items():
+        prayer_dt = LANKA_TZ.localize(
+            datetime.strptime(f'{times.date} {hhmm}', '%Y-%m-%d %H:%M')
+        )
+        if prayer_dt < dt:
+            prev = PrayerEvent(
+                given_datetime=dt,
+                name=name,
+                time=prayer_dt,
+                madhab=times.madhab,
+                city=times.city,
+            )
+        else:
+            break
+    return prev
+
+def _night_span_minutes(maghrib_hhmm: str, next_fajr_hhmm: str) -> int:
+    """
+    Night length in minutes from today's Maghrib to next day's Fajr.
+    """
+    mag_m = hhmm_to_minutes(maghrib_hhmm)
+    fajr_next_m = 24 * 60 + hhmm_to_minutes(next_fajr_hhmm)
+    return fajr_next_m - mag_m
+
+def _point_before_fajr_fraction(maghrib_hhmm: str, next_fajr_hhmm: str, numerator: int, denominator: int) -> str:
+    """
+    Generic helper: returns the clock time that is (numerator/denominator) of the night
+    BEFORE Fajr (e.g., 1/3 for tahajjud, 1/2 for midnight).
+    """
+    night = _night_span_minutes(maghrib_hhmm, next_fajr_hhmm)
+    offset = (night * numerator) // denominator  # integer minutes
+    fajr_next_m = 24 * 60 + hhmm_to_minutes(next_fajr_hhmm)
+    target_m = (fajr_next_m - offset) % (24 * 60)
+    return minutes_to_hhmm(target_m)
+
+def compute_tahajjud(maghrib_hhmm: str, next_fajr_hhmm: str) -> str:
+    """
+    Start of the last third of the night:
+    night = (next day's Fajr) - (Maghrib), tahajjud_start = Fajr - night/3.
+    Returns HH:MM (24h).
+    """
+    return _point_before_fajr_fraction(maghrib_hhmm, next_fajr_hhmm, 1, 3)
+
+
+def compute_midnight(maghrib_hhmm: str, next_fajr_hhmm: str) -> str:
+    """
+    Midpoint of the night (½ night):
+    night = (next day's Fajr) - (Maghrib), midnight = Fajr - night/2.
+    Returns HH:MM (24h).
+    """
+    return _point_before_fajr_fraction(maghrib_hhmm, next_fajr_hhmm, 1, 2)
+
+--- times/validation.py ---
+
+from rest_framework.response import Response
+from rest_framework import status
+
+VALID_MADHABS = {'hanafi', 'shafi'}
+VALID_CITIES = {'colombo', 'others'}
+
+
+def validate_madhab_city(madhab: str, city: str):
+    """Validate madhab and city. Returns (madhab, city, error_response)."""
+    m = (madhab or 'shafi').lower()
+    c = (city or 'colombo').lower()
+
+    if m not in VALID_MADHABS:
+        return None, None, Response(
+            data={
+                'error': f'Invalid madhab: {m}',
+                'valid_values': sorted(list(VALID_MADHABS)),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if c not in VALID_CITIES:
+        return None, None, Response(
+            data={
+                'error': f'Invalid city: {c}',
+                'valid_values': sorted(list(VALID_CITIES)),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return m, c, None
+
+
+--- times/views.py ---
+
+from datetime import date, datetime, timedelta
+
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.status import HTTP_400_BAD_REQUEST, HTTP_500_INTERNAL_SERVER_ERROR
+
+from .utils import get_times_for_day, next_prayer, PrayerDataNotAvailable
+from .validation import validate_madhab_city
+from .serializers import PrayerTimesSerializer, PrayerEventSerializer, PrayerTimesRangeSerializer
+
+
+@extend_schema(
+    summary='Get today’s prayer times',
+    description='Returns the prayer times for today for a given madhab and city.',
+    parameters=[
+        OpenApiParameter(
+            name='madhab',
+            description='School of thought. Valid values: hanafi, shafi',
+            required=False,
+            type=str,
+            examples=[OpenApiExample('Hanafi Example', value='hanafi')],
+        ),
+        OpenApiParameter(
+            name='city',
+            description='City name. Valid values: colombo, others',
+            required=False,
+            type=str,
+            examples=[OpenApiExample('Colombo Example', value='colombo')],
+        ),
+    ],
+    responses={200: PrayerTimesSerializer},
+)
+@api_view(['GET'])
+def today_times(request):
+    madhab, city, error = validate_madhab_city(
+        request.query_params.get('madhab'),
+        request.query_params.get('city'),
+    )
+    if error:
+        return error
+
+    try:
+        prayer_times = get_times_for_day(date.today(), madhab, city)
+    except PrayerDataNotAvailable as e:
+        return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=HTTP_500_INTERNAL_SERVER_ERROR)
+
+    serializer = PrayerTimesSerializer(prayer_times)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    summary='Get prayer times for a specific date',
+    description='Pass a date in YYYY-MM-DD format along with madhab and city.',
+    parameters=[
+        OpenApiParameter('madhab', str, description='hanafi or shafi'),
+        OpenApiParameter('city', str, description='colombo or others'),
+        OpenApiParameter('date', str, description='Date in YYYY-MM-DD format', required=True,
+                         examples=[OpenApiExample('Example date', value='2025-09-23')]),
+    ],
+    responses={200: dict},
+)
+@api_view(['GET'])
+def date_times(request):
+    madhab, city, error = validate_madhab_city(
+        request.query_params.get('madhab'),
+        request.query_params.get('city'),
+    )
+    if error:
+        return error
+
+    date_str = request.query_params.get('date')
+    if not date_str:
+        return Response(
+            {'error': 'Missing "date" query param (YYYY-MM-DD)'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        d = date.fromisoformat(date_str)
+        prayer_times = get_times_for_day(d, madhab, city)
+    except ValueError:
+        return Response({'error': 'Invalid date format. Use YYYY-MM-DD'}, status=HTTP_400_BAD_REQUEST)
+    except PrayerDataNotAvailable as e:
+        return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=HTTP_500_INTERNAL_SERVER_ERROR)
+
+    serializer = PrayerTimesSerializer(prayer_times)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    summary='Get next prayer after a given datetime',
+    description='Provide a datetime in ISO8601 format (YYYY-MM-DDTHH:MM).',
+    parameters=[
+        OpenApiParameter('madhab', str, description='hanafi or shafi'),
+        OpenApiParameter('city', str, description='colombo or others'),
+        OpenApiParameter('datetime', str, required=True,
+                         description='Datetime in ISO8601 format (YYYY-MM-DDTHH:MM)',
+                         examples=[OpenApiExample('Example', value='2025-09-23T15:45')]),
+    ],
+    responses={200: PrayerEventSerializer},
+)
+@api_view(['GET'])
+def next_times(request):
+    madhab, city, error = validate_madhab_city(
+        request.query_params.get('madhab'),
+        request.query_params.get('city'),
+    )
+    if error:
+        return error
+
+    dt_str = request.query_params.get('datetime')
+    if not dt_str:
+        return Response(
+            {'error': 'Missing "datetime" query param (ISO 8601 e.g. 2025-09-23T15:45)'},
+            status=HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        dt = datetime.fromisoformat(dt_str)
+        prayer_times = get_times_for_day(dt.date(), madhab, city)
+        next_prayer_event = next_prayer(dt, prayer_times)
+    except ValueError:
+        return Response({'error': 'Invalid datetime format. Use YYYY-MM-DDTHH:MM'}, status=HTTP_400_BAD_REQUEST)
+    except PrayerDataNotAvailable as e:
+        return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=HTTP_500_INTERNAL_SERVER_ERROR)
+
+    if not next_prayer_event:
+        return Response({
+            'message': 'No prayers left today. Next is Fajr tomorrow.',
+            'given_datetime': dt_str,
+            'madhab': madhab,
+            'city': city,
+        }, status=status.HTTP_200_OK)
+
+    data = {
+        'given_datetime': dt.isoformat(),
+        'madhab': madhab,
+        'city': city,
+        'next_prayer': {
+            'name': next_prayer_event.name,
+            'time': next_prayer_event.time.strftime("%H:%M"),
+        }
+    }
+    serializer = PrayerEventSerializer(data)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    summary='Get prayer times for a date range',
+    description='Provide start and end dates (YYYY-MM-DD).',
+    parameters=[
+        OpenApiParameter(name='madhab', description='hanafi or shafi', type=str),
+        OpenApiParameter(name='city', description='colombo or others', type=str),
+        OpenApiParameter(name='start', description='Start date YYYY-MM-DD', type=str, required=True),
+        OpenApiParameter(name='end', description='End date YYYY-MM-DD', type=str, required=True),
+    ],
+    responses={200: PrayerTimesRangeSerializer},
+)
+@api_view(['GET'])
+def range_times(request):
+    madhab, city, error = validate_madhab_city(
+        request.query_params.get('madhab'),
+        request.query_params.get('city'),
+    )
+    if error:
+        return error
+
+    start_str = request.query_params.get('start')
+    end_str = request.query_params.get('end')
+    if not start_str or not end_str:
+        return Response(
+            {'error': 'Missing "start" or "end" query params (YYYY-MM-DD)'},
+            status=HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        start_date = date.fromisoformat(start_str)
+        end_date = date.fromisoformat(end_str)
+        if end_date < start_date:
+            return Response({'error': '"end" must not be earlier than "start"'}, status=HTTP_400_BAD_REQUEST)
+    except ValueError:
+        return Response({'error': 'Dates must be in YYYY-MM-DD format'}, status=HTTP_400_BAD_REQUEST)
+
+    results = []
+    current = start_date
+    while current <= end_date:
+        try:
+            pt = get_times_for_day(current, madhab, city)
+            results.append(pt)
+        except PrayerDataNotAvailable as e:
+            results.append({
+                'date': str(current),
+                'madhab': madhab,
+                'city': city,
+                'times': {'error': str(e)}
+            })
+        except Exception as e:
+            results.append({
+                'date': str(current),
+                'madhab': madhab,
+                'city': city,
+                'times': {'error': str(e)}
+            })
+        current += timedelta(days=1)
+
+    serializer = PrayerTimesRangeSerializer({
+        'start': start_date,
+        'end': end_date,
+        'madhab': madhab,
+        'city': city,
+        'results': results,
+    })
+    return Response(serializer.data, status=status.HTTP_200_OK)

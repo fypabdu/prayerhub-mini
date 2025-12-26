@@ -1,0 +1,36 @@
+location:
+  city: "colombo"
+  madhab: "shafi"
+  timezone: "Asia/Colombo"
+
+api:
+  base_url: "http://prayer-api-lb-1574385576.us-east-1.elb.amazonaws.com"
+  timeout_seconds: 8
+  max_retries: 4
+  prefetch_days: 7
+
+audio:
+  test_audio: "data/audio/test_beep.mp3"
+  connected_tone: "data/audio/connected.mp3"
+  volumes:
+    master_percent: 60
+    adhan_percent: 85
+    fajr_adhan_percent: 60
+    quran_percent: 55
+    notification_percent: 50
+    test_percent: 70
+
+bluetooth:
+  device_mac: "AA:BB:CC:DD:EE:FF"
+  ensure_default_sink: true
+
+control_panel:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8080
+  auth:
+    username: "admin"
+    password_hash: "pbkdf2:sha256:..."
+  test_scheduler:
+    max_pending_tests: 10
+    max_minutes_ahead: 1440

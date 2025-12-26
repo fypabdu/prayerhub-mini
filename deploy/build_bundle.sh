@@ -21,6 +21,10 @@ cp deploy/prayerhub.service "$staging_dir/"
 cp deploy/install.sh "$staging_dir/"
 cp config.example.yml "$staging_dir/"
 cp README_INSTALL.md "$staging_dir/"
+if [ -d data/audio ]; then
+  mkdir -p "$staging_dir/data"
+  cp -R data/audio "$staging_dir/data/"
+fi
 
 cd "$staging_dir"
 find . -type f -print0 | sort -z | xargs -0 zip -X "$bundle_path" >/dev/null

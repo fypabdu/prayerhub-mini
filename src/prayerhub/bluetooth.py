@@ -43,6 +43,12 @@ class BluetoothManager:
 
         return False
 
+    def ensure_connected_once(self) -> bool:
+        if self._is_connected():
+            return True
+        # Single-shot reconnect for scheduled playback handlers.
+        return self._connect_once()
+
     def _connect_once(self) -> bool:
         result = self.runner.run(
             ["bluetoothctl", "connect", self.device_mac],

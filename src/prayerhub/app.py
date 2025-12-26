@@ -46,9 +46,36 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     from apscheduler.schedulers.background import BackgroundScheduler
 
     scheduler = BackgroundScheduler()
+    job_handler = _make_noop_handler(logger, dry_run=args.dry_run)
+    if not args.dry_run:
+        from prayerhub.audio import AudioPlayer, AudioRouter
+        from prayerhub.bluetooth import BluetoothManager
+        from prayerhub.command_runner import SubprocessCommandRunner
+        from prayerhub.playback import PlaybackHandler
+
+        runner = SubprocessCommandRunner()
+        router = AudioRouter(runner)
+        player = AudioPlayer(runner, router)
+        bluetooth = BluetoothManager(
+            runner=runner,
+            audio_router=router,
+            device_mac=config.bluetooth.device_mac,
+            ensure_default_sink=config.bluetooth.ensure_default_sink,
+        )
+        playback = PlaybackHandler(
+            bluetooth=bluetooth,
+            player=player,
+            audio=config.audio,
+        )
+
+        def handle(plan, name):
+            playback.handle_event(name)
+
+        job_handler = handle
+
     job_scheduler = JobScheduler(
         scheduler=scheduler,
-        handler=_make_noop_handler(logger, dry_run=args.dry_run),
+        handler=job_handler,
     )
 
     test_scheduler = TestScheduleService(

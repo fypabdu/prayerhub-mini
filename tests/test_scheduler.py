@@ -40,6 +40,27 @@ def test_schedule_day_only_future_jobs() -> None:
     assert jobs[0].id.endswith("20250101")
 
 
+def test_schedule_day_adds_quran_jobs() -> None:
+    today = date(2025, 1, 1)
+    now = datetime(2025, 1, 1, 6, 0)
+    scheduler = BackgroundScheduler()
+    scheduler.start(paused=True)
+
+    job_scheduler = JobScheduler(
+        scheduler=scheduler,
+        now_provider=FixedNow(now).now,
+        handler=lambda *_: None,
+    )
+
+    plan = _plan_for(today, {"dhuhr": "12:00"})
+    quran_schedule = ["06:30", "18:15"]
+    job_scheduler.schedule_day(plan, quran_times=quran_schedule)
+
+    ids = sorted(job.id for job in scheduler.get_jobs())
+    assert "quran_20250101_0630" in ids
+    assert "quran_20250101_1815" in ids
+
+
 def test_reschedule_does_not_duplicate_jobs() -> None:
     today = date(2025, 1, 1)
     now = datetime(2025, 1, 1, 10, 0)

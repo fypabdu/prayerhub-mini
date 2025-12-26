@@ -101,8 +101,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         logger.info("Scheduled jobs: %s", scheduler.get_jobs())
         return 0
 
-    schedule_from_cache(cache_store, job_scheduler)
-    schedule_refresh(job_scheduler, prayer_service, config.api.prefetch_days)
+    quran_times = [item.time for item in config.audio.quran_schedule]
+    schedule_from_cache(cache_store, job_scheduler, quran_times=quran_times)
+    schedule_refresh(
+        job_scheduler,
+        prayer_service,
+        config.api.prefetch_days,
+        quran_times=quran_times,
+    )
 
     if config.control_panel.enabled:
         from prayerhub.control_panel import ControlPanelServer

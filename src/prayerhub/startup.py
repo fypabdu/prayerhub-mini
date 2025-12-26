@@ -9,16 +9,21 @@ from prayerhub.prayer_times import DayPlan, PrayerTimeService
 from prayerhub.scheduler import JobScheduler
 
 
-def schedule_from_cache(cache: CacheStore, scheduler: JobScheduler) -> None:
+def schedule_from_cache(
+    cache: CacheStore, scheduler: JobScheduler, quran_times: Optional[Iterable[str]] = None
+) -> None:
     logger = logging.getLogger("Startup")
     # We schedule from cache immediately to keep the device offline-capable.
     for plan in _read_cached_days(cache):
-        scheduler.schedule_day(plan)
+        scheduler.schedule_day(plan, quran_times=quran_times)
     logger.info("Scheduled jobs from cache")
 
 
 def schedule_refresh(
-    scheduler: JobScheduler, prayer_service: PrayerTimeService, prefetch_days: int
+    scheduler: JobScheduler,
+    prayer_service: PrayerTimeService,
+    prefetch_days: int,
+    quran_times: Optional[Iterable[str]] = None,
 ) -> None:
     logger = logging.getLogger("Startup")
 
@@ -28,7 +33,7 @@ def schedule_refresh(
         for day in [today, today + timedelta(days=1)]:
             plan = prayer_service.get_day(day)
             if plan:
-                scheduler.schedule_day(plan)
+                scheduler.schedule_day(plan, quran_times=quran_times)
         logger.info("Refreshed schedule for %s", today.isoformat())
 
     scheduler.refresh_and_reschedule = refresh

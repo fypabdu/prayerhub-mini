@@ -30,7 +30,7 @@ class JobScheduler:
         if not self.scheduler.running:
             self.scheduler.start()
 
-    def schedule_day(self, plan: DayPlan) -> None:
+    def schedule_day(self, plan: DayPlan, *, quran_times: Optional[Iterable[str]] = None) -> None:
         self._remove_jobs_for_date(plan.date)
         for name, hhmm in sorted(plan.times.items()):
             run_at = self._combine(plan.date, hhmm)
@@ -43,6 +43,23 @@ class JobScheduler:
                 trigger=DateTrigger(run_date=run_at),
                 id=job_id,
                 args=[plan, name],
+                replace_existing=True,
+                misfire_grace_time=self.misfire_grace_seconds,
+                coalesce=True,
+                max_instances=1,
+            )
+            self._logger.info("Scheduled %s at %s", job_id, run_at)
+
+        for hhmm in sorted(quran_times or []):
+            run_at = self._combine(plan.date, hhmm)
+            if run_at <= self.now_provider():
+                continue
+            job_id = self._quran_job_id(plan.date, hhmm)
+            self.scheduler.add_job(
+                self.handler,
+                trigger=DateTrigger(run_date=run_at),
+                id=job_id,
+                args=[plan, f"quran@{hhmm}"],
                 replace_existing=True,
                 misfire_grace_time=self.misfire_grace_seconds,
                 coalesce=True,
@@ -75,6 +92,11 @@ class JobScheduler:
 
     def _job_id(self, name: str, day: date) -> str:
         return f"event_{name}_{day.strftime('%Y%m%d')}"
+
+    def _quran_job_id(self, day: date, hhmm: str) -> str:
+        # Quran jobs keep the time in the ID for easier tracking in status views.
+        compact = hhmm.replace(":", "")
+        return f"quran_{day.strftime('%Y%m%d')}_{compact}"
 
     def _combine(self, day: date, hhmm: str) -> datetime:
         # We store times as local wall-clock HH:MM strings.

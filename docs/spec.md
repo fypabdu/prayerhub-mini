@@ -840,6 +840,97 @@ Rules for every ticket:
 
 ---
 
+### T18 - Play test audio on scheduled test jobs
+**Estimate:** 35 min  
+**Depends on:** T8, T14  
+**Context7 topics:**  
+- APScheduler DateTrigger  
+- subprocess timeout handling  
+
+**TDD**
+- test job fires and uses `audio.test_audio`
+- Bluetooth reconnect attempted once, skip on failure
+
+**Steps**
+1. Wire `TestScheduleService` handler to call `PlaybackHandler` with `test_audio`.
+2. Ensure volume uses `audio.volumes.test_percent`.
+3. Update `/test` UI to show last test job status (optional).
+
+**Pitfalls**
+- Keep handler non-blocking; no unbounded waits.
+
+**Definition of Done**
+- Scheduling a test in 2 minutes plays `audio.test_audio` on device.
+
+---
+
+### T19 - Quran schedule job creation
+**Estimate:** 35 min  
+**Depends on:** T7, T13  
+**Context7 topics:**  
+- APScheduler date triggers  
+
+**TDD**
+- quran schedule entries create jobs at configured times
+- quran jobs use `quran@HH:MM` naming convention
+
+**Steps**
+1. Extend `JobScheduler.schedule_day()` to add Quran jobs for the day.
+2. Use stable job IDs: `quran_YYYYMMDD_HHMM`.
+3. Ensure quran jobs respect “future only” logic.
+
+**Pitfalls**
+- Avoid duplicating quran jobs on reschedule.
+
+**Definition of Done**
+- Daily schedule includes quran recitations at configured times.
+
+---
+
+### T20 - Scheduler start when control panel enabled
+**Estimate:** 20 min  
+**Depends on:** T9, T12, T16  
+**Context7 topics:**  
+- Flask app lifecycle  
+
+**TDD**
+- scheduler starts even when control panel is enabled
+
+**Steps**
+1. Start APScheduler before `server.app.run()`.
+2. Ensure scheduler thread stays alive while Flask runs.
+
+**Pitfalls**
+- Avoid double-starting scheduler in tests.
+
+**Definition of Done**
+- Jobs fire with the control panel running.
+
+---
+
+### T21 - File logging + dashboard tail wiring
+**Estimate:** 30 min  
+**Depends on:** T2, T15  
+**Context7 topics:**  
+- Python logging handlers  
+
+**TDD**
+- log file path config enables file handler
+- dashboard shows last N log lines
+
+**Steps**
+1. Add optional `logging.file_path` config (or env override).
+2. Initialize `LoggerFactory` with file handler when configured.
+3. Pass log path into ControlPanelServer.
+
+**Pitfalls**
+- Don’t log secrets; avoid unbounded log growth.
+
+**Definition of Done**
+- Control panel shows a real log tail from a file.
+
+---
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

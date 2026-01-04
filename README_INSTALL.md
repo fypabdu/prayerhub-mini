@@ -13,6 +13,18 @@ The bundle includes:
 sudo ./deploy/install.sh
 ```
 
+## Interactive setup (recommended)
+
+```bash
+sudo ./deploy/setup_device.sh
+```
+
+You can reset and start over any time with:
+
+```bash
+sudo ./deploy/setup_device.sh --reset
+```
+
 ## Configure
 
 ```bash

@@ -4,10 +4,13 @@ set -euo pipefail
 bundle_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 app_dir="/opt/prayerhub"
 config_dir="/etc/prayerhub"
+log_dir="/var/log/prayerhub"
+cache_dir="/var/lib/prayerhub/cache"
 service_file="/etc/systemd/system/prayerhub.service"
 service_user="${PRAYERHUB_USER:-${SUDO_USER:-pi}}"
 
-mkdir -p "$app_dir" "$config_dir"
+mkdir -p "$app_dir" "$config_dir" "$log_dir" "$cache_dir"
+chown -R "$service_user":"$service_user" "$log_dir" "$cache_dir"
 
 # Install system packages once to keep audio and Bluetooth available.
 if command -v apt-get >/dev/null 2>&1; then

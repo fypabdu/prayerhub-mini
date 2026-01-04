@@ -91,6 +91,20 @@ sudo ./deploy/install.sh
 
 This is where the script installs system packages, creates the venv, installs the wheel, and sets up the systemd service.
 
+## 4b) Optional: use the interactive setup helper
+
+If you want guided prompts for MAC address, audio files, and permissions, run:
+
+```bash
+sudo ./deploy/setup_device.sh
+```
+
+You can reset and start over any time with:
+
+```bash
+sudo ./deploy/setup_device.sh --reset
+```
+
 ## 5) Configure the app (manual)
 
 Open the config file:

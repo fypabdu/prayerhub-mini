@@ -46,6 +46,7 @@ class AudioConfig:
     quran_schedule: tuple["QuranScheduleItem", ...]
     notifications: "NotificationAudio"
     volumes: AudioVolumes
+    playback_timeout_seconds: int
 
 
 @dataclass(frozen=True)
@@ -237,6 +238,7 @@ class ConfigLoader:
             quran_schedule=quran_schedule,
             notifications=notifications,
             volumes=volumes,
+            playback_timeout_seconds=int(audio_data.get("playback_timeout_seconds", 300)),
         )
         bluetooth = BluetoothConfig(
             device_mac=bluetooth_data["device_mac"],
@@ -273,6 +275,7 @@ class ConfigLoader:
     def _validate(self, config: AppConfig) -> None:
         self._validate_audio_paths(config.audio)
         self._validate_volumes(config.audio.volumes)
+        self._validate_audio_timeout(config.audio)
         self._validate_control_panel(config.control_panel)
 
     def _validate_audio_paths(self, audio: AudioConfig) -> None:
@@ -303,6 +306,10 @@ class ConfigLoader:
         for name, value in vars(volumes).items():
             if not 0 <= value <= 100:
                 raise ConfigError(f"Volume percent out of range for {name}: {value}")
+
+    def _validate_audio_timeout(self, audio: AudioConfig) -> None:
+        if audio.playback_timeout_seconds <= 0:
+            raise ConfigError("playback_timeout_seconds must be greater than zero")
 
     def _validate_control_panel(self, control_panel: ControlPanelConfig) -> None:
         if not control_panel.enabled:

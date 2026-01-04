@@ -47,6 +47,7 @@ api:
 audio:
   test_audio: "{test_audio_path}"
   connected_tone: "data/audio/connected.mp3"
+  playback_timeout_seconds: 300
   adhan:
     fajr: "data/audio/adhan_fajr.mp3"
     dhuhr: "data/audio/adhan_dhuhr.mp3"

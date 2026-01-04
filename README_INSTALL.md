@@ -31,6 +31,8 @@ sudo ./deploy/setup_device.sh --reset
 sudo nano /etc/prayerhub/config.yml
 ```
 
+Make sure `audio.playback_timeout_seconds` is set high enough for your longest audio file.
+
 ## Audio files
 
 Bundle includes placeholder files in `/opt/prayerhub/data/audio/`. Replace them with real MP3s:

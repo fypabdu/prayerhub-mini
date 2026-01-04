@@ -21,12 +21,12 @@ class FakeBluetooth:
 class FakePlayer:
     def __init__(self, should_raise: bool = False) -> None:
         self.should_raise = should_raise
-        self.calls: list[tuple[Path, int]] = []
+        self.calls: list[tuple[Path, int, int]] = []
 
     def play(self, path: Path, *, volume_percent: int, timeout_seconds: int = 30) -> bool:
         if self.should_raise:
             raise RuntimeError("boom")
-        self.calls.append((path, volume_percent))
+        self.calls.append((path, volume_percent, timeout_seconds))
         return True
 
 
@@ -56,6 +56,7 @@ def _audio_config() -> AudioConfig:
             notification_percent=50,
             test_percent=70,
         ),
+        playback_timeout_seconds=300,
     )
 
 
@@ -90,7 +91,7 @@ def test_handler_plays_fajr_with_fajr_volume(tmp_path: Path, monkeypatch) -> Non
     )
 
     assert handler.handle_event("fajr") is True
-    assert player.calls == [(audio_dir / "adhan_fajr.mp3", 60)]
+    assert player.calls == [(audio_dir / "adhan_fajr.mp3", 60, 300)]
 
 
 def test_handler_plays_notification_with_notification_volume(tmp_path: Path, monkeypatch) -> None:
@@ -108,7 +109,7 @@ def test_handler_plays_notification_with_notification_volume(tmp_path: Path, mon
     )
 
     assert handler.handle_event("sunrise") is True
-    assert player.calls == [(audio_dir / "sunrise.mp3", 50)]
+    assert player.calls == [(audio_dir / "sunrise.mp3", 50, 300)]
 
 
 def test_handler_plays_quran_when_matching_time(tmp_path: Path, monkeypatch) -> None:
@@ -126,7 +127,7 @@ def test_handler_plays_quran_when_matching_time(tmp_path: Path, monkeypatch) -> 
     )
 
     assert handler.handle_event("quran@06:30") is True
-    assert player.calls == [(audio_dir / "quran_morning.mp3", 55)]
+    assert player.calls == [(audio_dir / "quran_morning.mp3", 55, 300)]
 
 
 def test_handler_plays_test_audio_with_test_volume(tmp_path: Path, monkeypatch) -> None:
@@ -144,7 +145,7 @@ def test_handler_plays_test_audio_with_test_volume(tmp_path: Path, monkeypatch) 
     )
 
     assert handler.handle_event("test_audio") is True
-    assert player.calls == [(audio_dir / "test_beep.mp3", 70)]
+    assert player.calls == [(audio_dir / "test_beep.mp3", 70, 300)]
 
 
 def test_handler_catches_player_errors(tmp_path: Path, monkeypatch) -> None:

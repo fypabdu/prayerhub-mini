@@ -113,7 +113,7 @@ def test_app_uses_explicit_config_path(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("PRAYERHUB_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.chdir(tmp_path)
 
-    exit_code = main(["--config", str(config_path)])
+    exit_code = main(["--config", str(config_path), "--dry-run"])
 
     assert exit_code == 0
 
@@ -141,6 +141,9 @@ def test_scheduler_starts_with_control_panel_enabled(tmp_path: Path, monkeypatch
         def add_job(self, *args, **kwargs):
             return None
 
+        def get_jobs(self):
+            return []
+
     class FakeServer:
         def __init__(self) -> None:
             self.app = self
@@ -151,6 +154,24 @@ def test_scheduler_starts_with_control_panel_enabled(tmp_path: Path, monkeypatch
             return None
 
     monkeypatch.setenv("PRAYERHUB_SECRET_KEY", "test")
+
+    class FakeApiClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        def get_range(self, *, madhab: str, city: str, start, end):
+            return {
+                "results": [
+                    {
+                        "date": start.isoformat(),
+                        "madhab": madhab,
+                        "city": city,
+                        "times": {"fajr": "05:00", "dhuhr": "12:00"},
+                    }
+                ]
+            }
+
+    monkeypatch.setattr("prayerhub.app.PrayerApiClient", FakeApiClient)
     monkeypatch.setattr(
         "apscheduler.schedulers.background.BackgroundScheduler", FakeScheduler
     )

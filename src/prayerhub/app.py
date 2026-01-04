@@ -38,6 +38,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     api_client = PrayerApiClient(
         base_url=config.api.base_url,
         timeout_seconds=config.api.timeout_seconds,
+        max_retries=config.api.max_retries,
     )
     prayer_service = PrayerTimeService(
         api_client=api_client,

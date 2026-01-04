@@ -997,6 +997,155 @@ Rules for every ticket:
 
 ---
 
+### T25 - Audio playback fallback to ffplay
+**Estimate:** 25 min  
+**Depends on:** T5  
+**Context7 topics:**  
+- none  
+
+**TDD**
+- when mpg123 is missing, ffplay is used
+- playback logs a clear error if neither backend is available
+
+**Steps**
+1. Extend AudioPlayer to check for ffplay when mpg123 is missing.
+2. Keep timeout behavior consistent across backends.
+
+**Pitfalls**
+- Avoid blocking playback when neither tool is installed; log and return false.
+
+**Definition of Done**
+- Device can play audio with either mpg123 or ffplay installed.
+
+---
+
+### T26 - /status endpoint includes test jobs
+**Estimate:** 25 min  
+**Depends on:** T9, T15  
+**Context7 topics:**  
+- none  
+
+**TDD**
+- /status requires login
+- response includes pending test job ids
+
+**Steps**
+1. Add a /status view that renders a minimal status page.
+2. Include next scheduled jobs and test jobs.
+
+**Pitfalls**
+- Keep auth consistent with other pages.
+
+**Definition of Done**
+- /status shows test jobs and next events when logged in.
+
+---
+
+### T27 - Controls: play-now for Quran and test audio
+**Estimate:** 20 min  
+**Depends on:** T15, T18  
+**Context7 topics:**  
+- none  
+
+**TDD**
+- controls page posts can trigger quran@test_time and test_audio
+
+**Steps**
+1. Add test audio and Quran options to the controls form.
+2. Wire play-now handler to accept these events safely.
+
+**Pitfalls**
+- Validate event names to avoid arbitrary playback.
+
+**Definition of Done**
+- Control panel can trigger a Quran sample and test audio on demand.
+
+---
+
+### T28 - Connected tone on successful Bluetooth connect
+**Estimate:** 25 min  
+**Depends on:** T6, T14  
+**Context7 topics:**  
+- none  
+
+**TDD**
+- connected tone plays after ensure_connected succeeds
+- skips tone if audio file missing
+
+**Steps**
+1. Invoke PlaybackHandler or AudioPlayer to play connected_tone on connect.
+2. Ensure this does not block scheduler threads.
+
+**Pitfalls**
+- Avoid infinite loops if Bluetooth flaps.
+
+**Definition of Done**
+- Successful Bluetooth connect plays the configured tone once.
+
+---
+
+### T29 - API retry/backoff uses max_retries
+**Estimate:** 30 min  
+**Depends on:** T4  
+**Context7 topics:**  
+- none  
+
+**TDD**
+- retries occur up to max_retries
+- backoff delay increases on failure
+
+**Steps**
+1. Implement retry/backoff in PrayerApiClient (or wrapper).
+2. Use config.api.max_retries to drive attempts.
+
+**Pitfalls**
+- Keep total request time bounded.
+
+**Definition of Done**
+- API client retries on transient failure and respects max_retries.
+
+---
+
+### T30 - Timezone handling for prayer times
+**Estimate:** 30 min  
+**Depends on:** T4, T12  
+**Context7 topics:**  
+- python stdlib zoneinfo  
+
+**TDD**
+- times are interpreted in the configured timezone
+- schedule uses timezone-aware datetimes
+
+**Steps**
+1. Use config.location.timezone to localize times.
+2. Ensure scheduler uses timezone-aware datetimes consistently.
+
+**Pitfalls**
+- Avoid mixing naive and aware datetimes.
+
+**Definition of Done**
+- Scheduled jobs fire according to configured timezone.
+
+---
+
+### T31 - CacheStore fsync for atomic writes
+**Estimate:** 20 min  
+**Depends on:** T3  
+**Context7 topics:**  
+- python stdlib file I/O  
+
+**TDD**
+- write uses fsync before rename
+
+**Steps**
+1. Update CacheStore.write to fsync the temp file before replace.
+
+**Pitfalls**
+- Keep behavior cross-platform and tested.
+
+**Definition of Done**
+- Cache writes are fully atomic with fsync protection.
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

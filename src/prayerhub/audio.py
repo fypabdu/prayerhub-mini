@@ -86,15 +86,16 @@ class AudioPlayer:
 
         try:
             self._router.set_master_volume(volume_percent)
-            if not self._runner.which("mpg123"):
-                # mpg123 is the preferred backend; warn so the device can be fixed.
-                self._logger.error("mpg123 is not installed or not on PATH")
+            if self._runner.which("mpg123"):
+                command = ["mpg123", "-q", str(path)]
+            elif self._runner.which("ffplay"):
+                command = ["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", str(path)]
+            else:
+                # Explicit error so operators know which tools to install.
+                self._logger.error("No audio backend available (mpg123 or ffplay)")
                 return False
 
-            result = self._runner.run(
-                ["mpg123", "-q", str(path)],
-                timeout=timeout_seconds,
-            )
+            result = self._runner.run(command, timeout=timeout_seconds)
             if result.returncode != 0:
                 self._logger.error(
                     "Audio playback failed: %s", result.stderr.strip()

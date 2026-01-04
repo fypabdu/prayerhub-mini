@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dataclasses import dataclass
+
 from prayerhub.audio import AudioPlayer, AudioRouter
+
+
+@dataclass
+class FakeResult:
+    returncode: int = 0
+    stderr: str = ""
 
 
 class FakeRunner:
@@ -13,8 +21,9 @@ class FakeRunner:
     def which(self, name: str) -> str | None:
         return name if name in self.available else None
 
-    def run(self, args: list[str], *, timeout: int) -> None:
+    def run(self, args: list[str], *, timeout: int) -> FakeResult:
         self.run_calls.append(args)
+        return FakeResult()
 
 
 def test_audio_router_selects_wpctl_then_pactl() -> None:
@@ -49,3 +58,29 @@ def test_audio_player_enforces_single_playback(tmp_path: Path) -> None:
         assert not player.play(audio_file, volume_percent=50, timeout_seconds=1)
     finally:
         player._lock.release()
+
+
+def test_audio_player_falls_back_to_ffplay(tmp_path: Path) -> None:
+    audio_file = tmp_path / "test.mp3"
+    audio_file.write_bytes(b"beep")
+
+    runner = FakeRunner({"ffplay"})
+    router = AudioRouter(runner)
+    player = AudioPlayer(runner, router)
+
+    assert player.play(audio_file, volume_percent=50, timeout_seconds=1)
+    assert runner.run_calls
+    assert runner.run_calls[0][0] == "ffplay"
+
+
+def test_audio_player_errors_when_no_backend(tmp_path: Path, caplog) -> None:
+    audio_file = tmp_path / "test.mp3"
+    audio_file.write_bytes(b"beep")
+
+    runner = FakeRunner(set())
+    router = AudioRouter(runner)
+    player = AudioPlayer(runner, router)
+
+    with caplog.at_level("ERROR"):
+        assert not player.play(audio_file, volume_percent=50, timeout_seconds=1)
+    assert "mpg123" in caplog.text and "ffplay" in caplog.text

@@ -1,22 +1,29 @@
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
+[tool.poetry]
 name = "prayerhub-mini"
 version = "0.1.0"
-description = "PrayerHub Mini prototype service"
+description = "PrayerHub Mini (Raspberry Pi): offline-first prayer schedule + LAN control panel"
 readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [{ name = "PrayerHub" }]
-dependencies = [
-  "APScheduler==3.10.4",
-  "Flask==3.0.3",
-  "PyYAML==6.0.2",
-  "Werkzeug==3.0.3",
-  "requests==2.32.3",
-]
+license = "MIT"
+authors = ["PrayerHub"]
+packages = [{ include = "prayerhub", from = "src" }]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+APScheduler = "3.10.4"
+Flask = "3.0.3"
+PyYAML = "6.0.2"
+Werkzeug = "3.0.3"
+requests = "2.32.3"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "8.3.2"
+
+[tool.poetry.scripts]
+prayerhub = "prayerhub.app:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"

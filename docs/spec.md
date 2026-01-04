@@ -931,6 +931,72 @@ Rules for every ticket:
 
 ---
 
+### T22 - Poetry migration: single source of truth
+**Estimate:** 35 min  
+**Depends on:** none  
+**Context7 topics:**  
+- none  
+
+**TDD**
+- N/A (config-only change)
+
+**Steps**
+1. Make `pyproject.toml` the sole source of metadata and dependencies.
+2. Move any misplaced config out of `poetry.toml` into `pyproject.toml`.
+3. Generate `poetry.lock` and remove or clearly mark `requirements.txt` as generated.
+
+**Pitfalls**
+- Avoid breaking `src/` package discovery.
+
+**Definition of Done**
+- `poetry check` passes and `poetry install` works in a clean environment.
+
+---
+
+### T23 - Poetry build + export for bundle/CI
+**Estimate:** 35 min  
+**Depends on:** T22  
+**Context7 topics:**  
+- none  
+
+**TDD**
+- bundle contains a wheel built by Poetry and a generated `requirements.txt`.
+
+**Steps**
+1. Update `deploy/build_bundle.sh` to use `poetry build` and `poetry export`.
+2. Update CI to install Poetry and use it for tests/build.
+3. Update `README.md` setup/build instructions to Poetry-first commands.
+
+**Pitfalls**
+- Keep bundle deterministic; avoid local path dependencies.
+
+**Definition of Done**
+- CI builds the install bundle using Poetry without pip/venv steps.
+
+---
+
+### T24 - Installer aligns with Poetry outputs
+**Estimate:** 20 min  
+**Depends on:** T23  
+**Context7 topics:**  
+- none  
+
+**TDD**
+- N/A (shell change)
+
+**Steps**
+1. Install the bundled wheel into the device venv.
+2. Use the exported `requirements.txt` only as a fallback.
+3. Update `README_INSTALL.md` to reflect the new artifact contents.
+
+**Pitfalls**
+- Ensure install remains idempotent on the device.
+
+**Definition of Done**
+- Device install works with the Poetry-built bundle.
+
+---
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

@@ -1,3 +1,4 @@
+# Generated via `poetry export` - do not edit by hand.
 APScheduler==3.10.4
 Flask==3.0.3
 PyYAML==6.0.2

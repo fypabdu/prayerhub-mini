@@ -2,6 +2,11 @@
 
 These steps assume you are on the Raspberry Pi and have unpacked the bundle.
 
+The bundle includes:
+- `dist/*.whl` (preferred install artifact)
+- `requirements.txt` (exported fallback)
+- `deploy/`, `config.example.yml`, `README_INSTALL.md`
+
 ## Install
 
 ```bash

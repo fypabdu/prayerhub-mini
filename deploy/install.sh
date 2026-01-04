@@ -23,8 +23,16 @@ fi
 
 if compgen -G "$bundle_dir/dist/*.whl" > /dev/null; then
   "$app_dir/.venv/bin/pip" install --upgrade "$bundle_dir"/dist/*.whl
-else
+elif compgen -G "$bundle_dir/dist/*.tar.gz" > /dev/null; then
+  "$app_dir/.venv/bin/pip" install --upgrade "$bundle_dir"/dist/*.tar.gz
+elif [ -f "$bundle_dir/requirements.txt" ]; then
   "$app_dir/.venv/bin/pip" install --upgrade -r "$bundle_dir/requirements.txt"
+  echo "Bundle is missing a wheel/sdist; dependencies installed only." >&2
+  echo "Rebuild the bundle to include dist/*.whl before running the service." >&2
+  exit 1
+else
+  echo "Bundle is missing dist/*.whl and requirements.txt; cannot install." >&2
+  exit 1
 fi
 
 if [ ! -f "$config_dir/config.yml" ]; then

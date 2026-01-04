@@ -69,6 +69,10 @@ def test_login_required_redirects() -> None:
     assert resp.status_code == 302
     assert "/login" in resp.headers["Location"]
 
+    resp = client.get("/status")
+
+    assert resp.status_code == 302
+    assert "/login" in resp.headers["Location"]
 
 def test_valid_login_creates_session() -> None:
     server, _, _, _ = _make_app()
@@ -164,3 +168,28 @@ def test_controls_play_now_triggers_handler() -> None:
 
     assert resp.status_code == 302
     assert player.events == ["fajr"]
+
+
+def test_status_shows_next_jobs_and_test_jobs() -> None:
+    server, test_scheduler, _, _ = _make_app()
+    client = server.app.test_client()
+
+    client.post(
+        "/login",
+        data={"username": "admin", "password": "secret"},
+        follow_redirects=True,
+    )
+    test_scheduler.schedule_test_in_minutes(5)
+    server.scheduler.add_job(
+        lambda: None,
+        trigger="date",
+        id="event_fajr_20250101",
+        run_date=datetime(2025, 1, 1, 10, 5),
+        replace_existing=True,
+    )
+
+    resp = client.get("/status")
+    body = resp.get_data(as_text=True)
+
+    assert "event_fajr_20250101" in body
+    assert "test_audio" in body

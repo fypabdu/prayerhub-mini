@@ -54,6 +54,30 @@ DASHBOARD_TEMPLATE = """
 <p><a href="{{ url_for('controls') }}">Controls</a></p>
 """
 
+STATUS_TEMPLATE = """
+<!doctype html>
+<title>PrayerHub Status</title>
+<h1>PrayerHub Status</h1>
+<p>Status: OK</p>
+<h2>Next Events</h2>
+<ul>
+{% for job in next_jobs %}
+  <li>{{ job.id }} at {{ job.run_date }}</li>
+{% else %}
+  <li>No scheduled events.</li>
+{% endfor %}
+</ul>
+
+<h2>Pending Test Jobs</h2>
+<ul>
+{% for job in test_jobs %}
+  <li>{{ job.id }} at {{ job.run_date }}</li>
+{% else %}
+  <li>No pending tests.</li>
+{% endfor %}
+</ul>
+"""
+
 
 TEST_TEMPLATE = """
 <!doctype html>
@@ -172,6 +196,17 @@ class ControlPanelServer:
                 next_jobs=next_jobs,
                 test_jobs=test_jobs,
                 logs=logs,
+            )
+
+        @app.route("/status")
+        @_login_required
+        def status():
+            next_jobs = _sorted_jobs(self.scheduler, limit=5)
+            test_jobs = self.test_scheduler.list_test_jobs()
+            return render_template_string(
+                STATUS_TEMPLATE,
+                next_jobs=next_jobs,
+                test_jobs=test_jobs,
             )
 
         @app.route("/test")

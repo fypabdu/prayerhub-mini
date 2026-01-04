@@ -11,21 +11,20 @@ Headless PrayerHub prototype for a Raspberry Pi device. This repo is intentional
 ## Setup
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+pip install poetry poetry-plugin-export
+poetry install
 ```
 
 ## Tests
 
 ```bash
-pytest -q
+poetry run pytest -q
 ```
 
 ## Run (dry-run)
 
 ```bash
-python -m prayerhub.app --config ./config.yml --dry-run
+poetry run python -m prayerhub.app --config ./config.yml --dry-run
 ```
 
 ## End-to-end validation checklist (manual)
@@ -38,13 +37,12 @@ python -m prayerhub.app --config ./config.yml --dry-run
 ## Smoke test
 
 ```bash
-pytest -m smoke -q
+poetry run pytest -m smoke -q
 ```
 
 ## Build install bundle
 
 ```bash
-pip install build
 bash deploy/build_bundle.sh
 ```
 

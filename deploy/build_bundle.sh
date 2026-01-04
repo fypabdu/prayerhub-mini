@@ -9,14 +9,20 @@ cd "$root_dir"
 
 rm -f "$bundle_path"
 
-python -m build --wheel --outdir dist
+if ! command -v poetry >/dev/null 2>&1; then
+  echo "Poetry is required to build the bundle." >&2
+  exit 1
+fi
+
+rm -rf dist
+poetry build --format wheel
 
 staging_dir="$(mktemp -d)"
 trap 'rm -rf "$staging_dir"' EXIT
 
 mkdir -p "$staging_dir/dist"
 cp dist/*.whl "$staging_dir/dist/"
-cp requirements.txt "$staging_dir/"
+poetry export -f requirements.txt --without-hashes --output "$staging_dir/requirements.txt"
 cp deploy/prayerhub.service "$staging_dir/"
 cp deploy/install.sh "$staging_dir/"
 cp config.example.yml "$staging_dir/"

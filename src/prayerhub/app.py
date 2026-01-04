@@ -67,6 +67,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             audio_router=router,
             device_mac=config.bluetooth.device_mac,
             ensure_default_sink=config.bluetooth.ensure_default_sink,
+            connected_tone_path=Path(config.audio.connected_tone),
+            connected_tone_player=player,
+            connected_tone_volume_percent=config.audio.volumes.notification_percent,
         )
         playback = PlaybackHandler(
             bluetooth=bluetooth,

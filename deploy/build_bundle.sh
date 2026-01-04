@@ -23,8 +23,9 @@ trap 'rm -rf "$staging_dir"' EXIT
 mkdir -p "$staging_dir/dist"
 cp dist/*.whl "$staging_dir/dist/"
 poetry export -f requirements.txt --without-hashes --output "$staging_dir/requirements.txt"
-cp deploy/prayerhub.service "$staging_dir/"
-cp deploy/install.sh "$staging_dir/"
+mkdir -p "$staging_dir/deploy"
+cp deploy/prayerhub.service "$staging_dir/deploy/"
+cp deploy/install.sh "$staging_dir/deploy/"
 cp config.example.yml "$staging_dir/"
 cp README_INSTALL.md "$staging_dir/"
 if [ -d data/audio ]; then

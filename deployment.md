@@ -34,6 +34,8 @@ Manual tasks are called out explicitly in the steps below.
 5. You should have a file like:
    - `prayerhub-install-bundle.zip`
 
+Note: the GitHub Actions artifact download is a zip that contains **another** `prayerhub-install-bundle.zip` inside it. You will unzip twice.
+
 ## 2) Transfer the artifact to the Pi
 
 ### Option A: SCP (recommended)
@@ -54,8 +56,22 @@ Replace `192.168.1.50` with your Pi IP.
 
 ```bash
 cd /home/pi
-unzip prayerhub-install-bundle.zip -d prayerhub-bundle
-cd prayerhub-bundle
+unzip prayerhub-install-bundle.zip -d artifact
+cd artifact
+ls -la
+```
+
+You should see an inner bundle zip:
+
+```
+prayerhub-install-bundle.zip
+```
+
+Now unpack the inner bundle to a clean folder:
+
+```bash
+unzip prayerhub-install-bundle.zip -d bundle
+cd bundle
 ls -la
 ```
 
@@ -206,4 +222,3 @@ You should see log lines for:
 sudo systemctl restart prayerhub.service
 ```
 3. Ensure it schedules from cache and does not crash-loop.
-

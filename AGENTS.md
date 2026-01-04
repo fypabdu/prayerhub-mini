@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-This repository is currently minimal and includes `README.md` and `requirements.txt`. If you add application code, keep it organized and easy to scan. A common layout is:
+This repository includes runtime code under `src/`, tests, and deployment assets. If you add application code, keep it organized and easy to scan. A common layout is:
 
 - `src/` for runtime code
 - `tests/` for test code
@@ -11,13 +11,13 @@ This repository is currently minimal and includes `README.md` and `requirements.
 Keep module boundaries small and name files by responsibility (for example, `src/prayers.py`, `tests/test_prayers.py`).
 
 ## Build, Test, and Development Commands
-Python dependencies are tracked in `requirements.txt`. Typical setup:
+Dependencies are tracked in `pyproject.toml` and managed by Poetry. Typical setup:
 
-- `python -m venv .venv` creates a local virtual environment.
-- `source .venv/bin/activate` activates it (use the equivalent on Windows).
-- `pip install -r requirements.txt` installs dependencies.
+- `pip install poetry poetry-plugin-export`
+- `poetry install`
+- `poetry run pytest -q`
 
-No build or run commands are defined yet. If you add an entry point, document it here with the exact command.
+Run commands are defined in `README.md`. Keep this section aligned with Poetry-first workflows.
 
 ## Coding Style & Naming Conventions
 No formatter or linter is configured. If you add Python code, follow standard conventions:
@@ -29,7 +29,7 @@ No formatter or linter is configured. If you add Python code, follow standard co
 If you introduce formatting or linting tools (for example, `ruff` or `black`), include the command in this file.
 
 ## Testing Guidelines
-There is no test framework configured yet. If you add tests, place them under `tests/` and use clear names such as `test_*.py`. Document the test runner and command you expect contributors to use.
+Tests use `pytest`. If you add tests, place them under `tests/` and use clear names such as `test_*.py`. Document the test runner and command you expect contributors to use.
 
 ## Commit & Pull Request Guidelines
 No commit message convention is documented. Use concise, imperative summaries (for example, “Add prayer model”). For pull requests, include:
@@ -68,9 +68,10 @@ Codex reads `AGENTS.md` automatically before working. It also supports layered o
    - Prefer small classes with single responsibility.
    - Use interfaces (Protocols) for external systems (HTTP, Bluetooth, subprocess/audio, clock).
 
-4. **Always update `requirements.txt` when adding packages**  
-   - If you import a new third-party package, add it immediately to `requirements.txt`.
+4. **Always update dependencies in `pyproject.toml` when adding packages**  
+   - If you import a new third-party package, add it immediately to `pyproject.toml`.
    - Prefer pinning (`pkg==x.y.z`) for repeatable Pi installs and CI builds.
+   - Regenerate `requirements.txt` via `poetry export` for the bundle.
 
 5. **Never leave the user hanging**  
    - Every response MUST end with:
@@ -86,10 +87,10 @@ Codex reads `AGENTS.md` automatically before working. It also supports layered o
 Codex must treat the following as the source of truth:
 
 ### Project spec / plan
-- `Project Plan Spec.md` (or `docs/Project Plan Spec.md` if you move it) — the mini design doc + 8-hour plan.
+- `docs/spec.md` — the mini design doc + 8-hour plan.
 
 ### Prayer times API reference (repo2txt export)
-- `converted-repo-prayer-api.txt` — includes endpoints, params, response shapes, and tests.
+- `docs/converted-repo-prayer-api.txt` — includes endpoints, params, response shapes, and tests.
 
 Key endpoints (from the text export; confirm inside that file):
 - `GET /api/v1/times/today/?madhab=...&city=...`
@@ -123,20 +124,19 @@ Linux/man-page style references (not in Context7 usually, but add notes):
 
 ### Setup (dev machine)
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-pytest -q
+pip install poetry poetry-plugin-export
+poetry install
+poetry run pytest -q
 ```
 
 ### Run app (dry-run schedule)
 ```bash
-python -m prayerhub.app --config ./config.yml --dry-run
+poetry run python -m prayerhub.app --config ./config.yml --dry-run
 ```
 
 ### Run app (real)
 ```bash
-python -m prayerhub.app --config ./config.yml
+poetry run python -m prayerhub.app --config ./config.yml
 ```
 
 ### Git hygiene
@@ -168,6 +168,7 @@ The bundle should be a zip, e.g. `prayerhub-install-bundle.zip`, containing:
 - `deploy/install.sh`
 - `config.example.yml`
 - `README_INSTALL.md` (short, exact device steps)
+- `data/audio/` (if bundled)
 
 Codex should implement a script:
 - `deploy/build_bundle.sh` (or `.py`) that creates the zip in a deterministic way.
@@ -285,7 +286,7 @@ For each ticket:
    - Add/extend tests under `tests/`
    - Run `pytest -q` (or instruct user to run if sandboxed)
 5. **Implement** minimal code in `src/prayerhub/`
-6. **Update `requirements.txt`** if new deps added.
+6. **Update `pyproject.toml`** if new deps added, then regenerate `requirements.txt` via `poetry export` for the bundle.
 7. **Run full tests**.
 8. **Show git diff summary** and propose a commit message.
 9. **Stop** and tell the user:
@@ -318,6 +319,7 @@ Codex instructions discovery and size caps are explained in the docs. cite
 - Pair + trust the speaker with `bluetoothctl`
 - Install system packages (bluez, mpg123, etc.)
 - Copy install bundle from GitHub Actions and run `deploy/install.sh`
+- Follow `deployment.md` for full device install steps
 
 ### C) Context7 exports
 - Export the topic docs listed in section 1 into `docs/context7/`.

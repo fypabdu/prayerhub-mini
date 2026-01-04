@@ -47,3 +47,7 @@ bash deploy/build_bundle.sh
 ```
 
 The bundle is created as `prayerhub-install-bundle.zip` and is also built by CI.
+
+## Deploy to Pi
+
+See `deployment.md` for step-by-step Raspberry Pi Zero 2W deployment instructions.

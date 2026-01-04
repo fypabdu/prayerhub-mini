@@ -56,6 +56,7 @@ def _make_app() -> tuple[ControlPanelServer, TestScheduleService, FakeRouter, Fa
         audio_router=router,
         play_handler=player,
         log_path="logs/test.log",
+        quran_times=("06:30",),
     )
     return server, test_scheduler, router, player
 
@@ -168,6 +169,25 @@ def test_controls_play_now_triggers_handler() -> None:
 
     assert resp.status_code == 302
     assert player.events == ["fajr"]
+
+
+def test_controls_play_now_triggers_test_and_quran() -> None:
+    server, _, _, player = _make_app()
+    client = server.app.test_client()
+
+    client.post(
+        "/login",
+        data={"username": "admin", "password": "secret"},
+        follow_redirects=True,
+    )
+
+    resp = client.post("/controls/play-now", data={"event": "test_audio"})
+    assert resp.status_code == 302
+
+    resp = client.post("/controls/play-now", data={"event": "quran@06:30"})
+    assert resp.status_code == 302
+
+    assert player.events == ["test_audio", "quran@06:30"]
 
 
 def test_status_shows_next_jobs_and_test_jobs() -> None:

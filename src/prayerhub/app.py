@@ -128,6 +128,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             audio_router=audio_router,
             play_handler=play_handler,
             log_path=log_path,
+            quran_times=tuple(quran_times),
         )
         scheduler.start()
         logger.info("Starting control panel on %s:%s", server.host, server.port)

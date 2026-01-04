@@ -116,6 +116,7 @@ CONTROLS_TEMPLATE = """
 <form method="post" action="{{ url_for('play_now') }}">
   <label>Event
     <select name="event">
+      <option value="test_audio">Test Audio</option>
       <option value="fajr">Fajr</option>
       <option value="dhuhr">Dhuhr</option>
       <option value="asr">Asr</option>
@@ -125,6 +126,9 @@ CONTROLS_TEMPLATE = """
       <option value="sunset">Sunset</option>
       <option value="midnight">Midnight</option>
       <option value="tahajjud">Tahajjud</option>
+      {% for time in quran_times %}
+      <option value="quran@{{ time }}">Quran {{ time }}</option>
+      {% endfor %}
     </select>
   </label>
   <button type="submit">Play Now</button>
@@ -152,6 +156,7 @@ class ControlPanelServer:
     audio_router: Optional[object] = None
     play_handler: Optional[Callable[[str], bool]] = None
     log_path: Optional[str] = None
+    quran_times: Sequence[str] = ()
     host: str = "0.0.0.0"
     port: int = 8080
     volume_percent: int = 50
@@ -159,6 +164,7 @@ class ControlPanelServer:
 
     def __post_init__(self) -> None:
         self._logger = logging.getLogger(self.__class__.__name__)
+        self._allowed_events = self._build_allowed_events()
         self._app = self._create_app()
 
     @property
@@ -241,7 +247,10 @@ class ControlPanelServer:
         @app.route("/controls")
         @_login_required
         def controls():
-            return render_template_string(CONTROLS_TEMPLATE)
+            return render_template_string(
+                CONTROLS_TEMPLATE,
+                quran_times=self.quran_times,
+            )
 
         @app.post("/controls/volume")
         @_login_required
@@ -256,8 +265,10 @@ class ControlPanelServer:
         @_login_required
         def play_now():
             event = request.form.get("event", "").strip()
-            if event and self.play_handler:
+            if event and self.play_handler and event in self._allowed_events:
                 self.play_handler(event)
+            elif event:
+                self._logger.warning("Rejected play-now event: %s", event)
             return redirect(url_for("controls"))
 
         return app
@@ -272,6 +283,23 @@ class ControlPanelServer:
             self.volume_percent = max(0, self.volume_percent - self.volume_step)
         # We keep volume state in memory so the UI feels responsive.
         self.audio_router.set_master_volume(self.volume_percent)
+
+    def _build_allowed_events(self) -> set[str]:
+        base = {
+            "test_audio",
+            "fajr",
+            "dhuhr",
+            "asr",
+            "maghrib",
+            "isha",
+            "sunrise",
+            "sunset",
+            "midnight",
+            "tahajjud",
+        }
+        for time in self.quran_times:
+            base.add(f"quran@{time}")
+        return base
 
 
 def _sorted_jobs(scheduler: Optional[object], limit: int) -> Sequence[object]:

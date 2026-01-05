@@ -1215,6 +1215,55 @@ Rules for every ticket:
 **Definition of Done**
 - Setup script lets users select audio files by number instead of typing full filenames.
 
+---
+
+### T35 - Expanded runtime diagnostics logging
+**Estimate:** 35 min  
+**Depends on:** T12  
+**Context7 topics:**  
+- Python logging  
+
+**TDD**
+- startup logs include key config values (safe, no secrets)
+- playback logs include audio file path, event name, volume, and timeout
+- scheduler logs include job creation/removal details
+
+**Steps**
+1. Add structured, info-level logs at startup for key config sections (sanitized).
+2. Log each playback attempt with event name + resolved file path.
+3. Add schedule add/remove logs with job IDs and run times.
+
+**Pitfalls**
+- Never log secrets (passwords, hashes, tokens).
+- Avoid logging full config if it includes sensitive data.
+
+**Definition of Done**
+- Logs contain actionable diagnostics for config, scheduling, and playback.
+
+---
+
+### T36 - Control panel config editor + device status
+**Estimate:** 60 min  
+**Depends on:** T9, T15  
+**Context7 topics:**  
+- Flask forms  
+
+**TDD**
+- config editor loads current values and saves updates
+- device status shows bluetooth + wifi state
+
+**Steps**
+1. Add a `/config` page to edit all config fields (text/number inputs).
+2. Implement save with validation and restart prompt.
+3. Add device status section (bluetooth connected, default sink, wifi state/IP).
+
+**Pitfalls**
+- Do not expose secrets; allow updating password via a separate field.
+- Avoid breaking config on save; validate before writing.
+
+**Definition of Done**
+- Control panel can edit config and display device status details.
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

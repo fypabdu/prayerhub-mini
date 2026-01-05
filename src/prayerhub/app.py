@@ -31,6 +31,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     log_path = os.getenv("PRAYERHUB_LOG_PATH") or config.logging.file_path
     LoggerFactory.create("prayerhub", log_file=log_path)
     logger = logging.getLogger("prayerhub")
+    logger.info("Config summary: %s", _config_summary(config))
 
     cache_dir = Path(os.getenv("PRAYERHUB_CACHE_DIR", "/var/lib/prayerhub/cache"))
     cache_store = CacheStore(cache_dir)
@@ -143,6 +144,67 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
     return 0
 
+
+def _config_summary(config) -> dict:
+    return {
+        "location": {
+            "city": config.location.city,
+            "madhab": config.location.madhab,
+            "timezone": config.location.timezone,
+        },
+        "api": {
+            "base_url": config.api.base_url,
+            "timeout_seconds": config.api.timeout_seconds,
+            "max_retries": config.api.max_retries,
+            "prefetch_days": config.api.prefetch_days,
+        },
+        "audio": {
+            "test_audio": config.audio.test_audio,
+            "connected_tone": config.audio.connected_tone,
+            "adhan": {
+                "fajr": config.audio.adhan.fajr,
+                "dhuhr": config.audio.adhan.dhuhr,
+                "asr": config.audio.adhan.asr,
+                "maghrib": config.audio.adhan.maghrib,
+                "isha": config.audio.adhan.isha,
+            },
+            "quran_schedule": [item.time for item in config.audio.quran_schedule],
+            "notifications": {
+                "sunrise": config.audio.notifications.sunrise,
+                "sunset": config.audio.notifications.sunset,
+                "midnight": config.audio.notifications.midnight,
+                "tahajjud": config.audio.notifications.tahajjud,
+            },
+            "volumes": {
+                "master_percent": config.audio.volumes.master_percent,
+                "adhan_percent": config.audio.volumes.adhan_percent,
+                "fajr_adhan_percent": config.audio.volumes.fajr_adhan_percent,
+                "quran_percent": config.audio.volumes.quran_percent,
+                "notification_percent": config.audio.volumes.notification_percent,
+                "test_percent": config.audio.volumes.test_percent,
+            },
+            "playback_timeout_seconds": config.audio.playback_timeout_seconds,
+        },
+        "bluetooth": {
+            "device_mac": config.bluetooth.device_mac,
+            "ensure_default_sink": config.bluetooth.ensure_default_sink,
+        },
+        "control_panel": {
+            "enabled": config.control_panel.enabled,
+            "host": config.control_panel.host,
+            "port": config.control_panel.port,
+            "auth": {
+                "username": config.control_panel.auth.username,
+            },
+            "test_scheduler": {
+                "max_pending_tests": config.control_panel.test_scheduler.max_pending_tests,
+                "max_minutes_ahead": config.control_panel.test_scheduler.max_minutes_ahead,
+            },
+        },
+        "logging": {
+            "file_path": config.logging.file_path,
+        },
+    }
 
 def _parse_args(argv: Optional[Iterable[str]]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PrayerHub Mini")

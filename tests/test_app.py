@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from prayerhub.app import main
+from prayerhub.app import _config_summary, main
+from prayerhub.config import ConfigLoader
 
 
 def _write_yaml(path: Path, content: str) -> None:
@@ -195,3 +196,19 @@ def test_app_exits_cleanly_on_config_error(tmp_path: Path, monkeypatch) -> None:
     exit_code = main(["--dry-run"])
 
     assert exit_code != 0
+
+
+def test_config_summary_redacts_password_hash(tmp_path: Path, monkeypatch) -> None:
+    test_audio = tmp_path / "test_beep.mp3"
+    test_audio.write_bytes(b"beep")
+    _seed_audio_files(tmp_path)
+    _write_yaml(tmp_path / "config.yml", _base_config("test_beep.mp3"))
+
+    monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+
+    config = ConfigLoader().load()
+    summary = _config_summary(config)
+
+    assert summary["control_panel"]["auth"] == {"username": "admin"}
+    assert "password_hash" not in str(summary)

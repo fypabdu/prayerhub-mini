@@ -130,7 +130,7 @@ echo "PrayerHub Mini interactive setup"
 echo "Type 'q' at any prompt to quit."
 
 echo "Step 1/6: Install bundle dependencies and app"
-"$bundle_dir/deploy/install.sh"
+bash "$bundle_dir/deploy/install.sh"
 
 service_user="$(systemctl cat prayerhub.service | awk -F= '/^User=/{print $2; exit}')"
 if [ -z "$service_user" ]; then

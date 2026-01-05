@@ -27,6 +27,13 @@ class PlaybackHandler:
                 return False
 
             path, volume = selection
+            self._logger.info(
+                "Playback event=%s path=%s volume=%s timeout=%s",
+                event_name,
+                path,
+                volume,
+                self._audio.playback_timeout_seconds,
+            )
             timeout_seconds = self._audio.playback_timeout_seconds
             if timeout_seconds == 0:
                 timeout_seconds = None

@@ -88,6 +88,7 @@ class JobScheduler:
         for job in self.scheduler.get_jobs():
             if job.id.endswith(suffix):
                 # Clearing by suffix avoids stale jobs accumulating over time.
+                self._logger.info("Removing job %s", job.id)
                 self.scheduler.remove_job(job.id)
 
     def _job_id(self, name: str, day: date) -> str:

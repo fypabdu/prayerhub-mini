@@ -237,6 +237,7 @@ We need a minimal HTML UI reachable on the LAN.
   - `/` dashboard (status + next events + last logs tail)
   - `/test` (schedule test audio: HH:MM and “in N minutes”, list/cancel)
   - `/controls` (volume up/down, play adhan/quran test triggers)
+  - `/config` (edit config values)
 
 ### Security model (simple)
 - Use server-side session cookies.
@@ -250,6 +251,10 @@ We need a minimal HTML UI reachable on the LAN.
   - login required redirects
   - valid login creates session
   - schedule test endpoints create APScheduler jobs
+  - config editor loads and saves values
+
+### Config edit rule
+- Whenever a configurable parameter is added to the config file, it must be editable in the control panel with a text or number input.
 
 ---
 

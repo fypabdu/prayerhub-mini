@@ -183,3 +183,24 @@ def test_handler_disables_timeout_when_configured(tmp_path: Path, monkeypatch) -
 
     assert handler.handle_event("fajr") is True
     assert player.calls == [(audio_dir / "adhan_fajr.mp3", 60, None)]
+
+
+def test_handler_logs_playback_details(tmp_path: Path, monkeypatch, caplog) -> None:
+    audio_dir = tmp_path / "data" / "audio"
+    audio_dir.mkdir(parents=True)
+    (audio_dir / "adhan_fajr.mp3").write_bytes(b"beep")
+    monkeypatch.chdir(tmp_path)
+
+    bluetooth = FakeBluetooth(connected=True)
+    player = FakePlayer()
+    handler = PlaybackHandler(
+        bluetooth=bluetooth,
+        player=player,
+        audio=_audio_config(),
+    )
+
+    with caplog.at_level("INFO"):
+        assert handler.handle_event("fajr") is True
+
+    assert "Playback event=fajr" in caplog.text
+    assert "adhan_fajr.mp3" in caplog.text

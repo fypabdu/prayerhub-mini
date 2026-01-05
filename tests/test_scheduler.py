@@ -16,6 +16,40 @@ class FixedNow:
         return self._now
 
 
+def test_reschedule_logs_removed_jobs(tmp_path, caplog) -> None:
+    scheduler = BackgroundScheduler()
+    scheduler.start(paused=True)
+    job_scheduler = JobScheduler(
+        scheduler=scheduler,
+        handler=lambda *_: None,
+        now_provider=FixedNow(datetime(2025, 1, 1, 4, 0)).now,
+    )
+
+    scheduler.add_job(
+        lambda: None,
+        trigger="date",
+        id="event_fajr_20250101",
+        run_date=datetime(2025, 1, 1, 5, 0),
+    )
+    scheduler.add_job(
+        lambda: None,
+        trigger="date",
+        id="event_other_20250102",
+        run_date=datetime(2025, 1, 2, 5, 0),
+    )
+
+    plan = DayPlan(
+        date=date(2025, 1, 1),
+        madhab="shafi",
+        city="colombo",
+        times={"fajr": "05:00"},
+    )
+
+    with caplog.at_level("INFO"):
+        job_scheduler.schedule_day(plan)
+
+    assert "Removing job event_fajr_20250101" in caplog.text
+
 def _plan_for(day: date, times: dict[str, str]) -> DayPlan:
     return DayPlan(date=day, madhab="shafi", city="colombo", times=times)
 

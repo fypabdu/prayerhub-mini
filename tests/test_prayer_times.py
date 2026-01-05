@@ -173,3 +173,30 @@ def test_missing_extras_are_derived_from_next_day(tmp_path) -> None:
     assert plan is not None
     assert plan.times["midnight"] == "00:00"
     assert plan.times["tahajjud"] == "02:00"
+
+
+def test_missing_sunset_is_derived_from_maghrib(tmp_path) -> None:
+    payload = {
+        "results": [
+            {
+                "date": "2025-01-01",
+                "madhab": "shafi",
+                "city": "colombo",
+                "times": {"fajr": "05:00", "maghrib": "18:00"},
+            }
+        ]
+    }
+    api = FakeApiClient(range_payload=payload)
+    service = PrayerTimeService(
+        api_client=api,
+        cache_store=CacheStore(tmp_path),
+        city="colombo",
+        madhab="shafi",
+        clock=FixedClock(datetime(2025, 1, 1, 8, 0)),
+    )
+
+    service.prefetch(days=1)
+
+    plan = service.get_day(date(2025, 1, 1))
+    assert plan is not None
+    assert plan.times["sunset"] == "17:40"

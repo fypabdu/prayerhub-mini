@@ -150,23 +150,52 @@ class PrayerTimeService:
 
 
 def _derive_extras(plan: DayPlan, next_plan: Optional[DayPlan]) -> DayPlan:
-    if not next_plan:
-        return plan
-
     times = dict(plan.times)
+
+    if "sunset" not in times:
+        maghrib = times.get("maghrib")
+        if maghrib:
+            sunset_dt = _combine(plan.date, maghrib) - timedelta(minutes=20)
+            times["sunset"] = sunset_dt.strftime("%H:%M")
+
+    if not next_plan:
+        if times == plan.times:
+            return plan
+        return DayPlan(
+            date=plan.date,
+            madhab=plan.madhab,
+            city=plan.city,
+            times=times,
+        )
+
     if "midnight" in times and "tahajjud" in times:
-        return plan
+        return DayPlan(
+            date=plan.date,
+            madhab=plan.madhab,
+            city=plan.city,
+            times=times,
+        )
 
     maghrib = times.get("maghrib")
     next_fajr = next_plan.times.get("fajr")
     if not maghrib or not next_fajr:
-        return plan
+        return DayPlan(
+            date=plan.date,
+            madhab=plan.madhab,
+            city=plan.city,
+            times=times,
+        )
 
     maghrib_dt = _combine(plan.date, maghrib)
     fajr_dt = _combine(next_plan.date, next_fajr)
     night = fajr_dt - maghrib_dt
     if night <= timedelta(0):
-        return plan
+        return DayPlan(
+            date=plan.date,
+            madhab=plan.madhab,
+            city=plan.city,
+            times=times,
+        )
 
     if "midnight" not in times:
         midnight_dt = maghrib_dt + night / 2

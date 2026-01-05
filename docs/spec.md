@@ -1146,6 +1146,29 @@ Rules for every ticket:
 **Definition of Done**
 - Cache writes are fully atomic with fsync protection.
 
+---
+
+### T32 - Sunset notification offset (20 minutes before Maghrib)
+**Estimate:** 25 min  
+**Depends on:** T4, T7  
+**Context7 topics:**  
+- datetime arithmetic  
+
+**TDD**
+- when API does not provide sunset time, schedule sunset notification at maghrib minus 20 minutes
+- sunset notification uses the configured sunset audio (adhkar/duas)
+
+**Steps**
+1. Detect when `sunset` is missing in the DayPlan times.
+2. Derive `sunset` as `maghrib - 20 minutes` for that day.
+3. Ensure scheduler uses the derived sunset time for the notification job.
+
+**Pitfalls**
+- Avoid scheduling in the past; keep existing “future only” behavior.
+
+**Definition of Done**
+- Sunset notification consistently fires 20 minutes before Maghrib when API lacks sunset.
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

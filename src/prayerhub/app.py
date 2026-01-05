@@ -134,6 +134,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             play_handler=play_handler,
             log_path=log_path,
             quran_times=tuple(quran_times),
+            config_path=str(config_path) if config_path else None,
+            device_mac=config.bluetooth.device_mac,
         )
         scheduler.start()
         logger.info("Starting control panel on %s:%s", server.host, server.port)

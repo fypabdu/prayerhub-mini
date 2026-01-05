@@ -4,11 +4,16 @@ from dataclasses import dataclass
 from datetime import datetime
 import logging
 from pathlib import Path
+import tempfile
 from typing import Callable, Optional, Sequence
+
+import yaml
 
 from flask import Flask, redirect, render_template_string, request, session, url_for
 from werkzeug.security import check_password_hash
 
+from prayerhub.command_runner import SubprocessCommandRunner
+from prayerhub.config import ConfigError, ConfigLoader
 from prayerhub.test_scheduler import TestScheduleService
 
 
@@ -52,6 +57,14 @@ DASHBOARD_TEMPLATE = """
 <pre>{{ logs }}</pre>
 <p><a href="{{ url_for('test_page') }}">Test audio</a></p>
 <p><a href="{{ url_for('controls') }}">Controls</a></p>
+<p><a href="{{ url_for('config_page') }}">Config</a></p>
+
+<h2>Device Status</h2>
+<ul>
+  <li>Bluetooth: {{ device_status.bluetooth }}</li>
+  <li>Wi-Fi: {{ device_status.wifi }}</li>
+  <li>IP: {{ device_status.ip }}</li>
+</ul>
 """
 
 STATUS_TEMPLATE = """
@@ -135,6 +148,36 @@ CONTROLS_TEMPLATE = """
 </form>
 """
 
+CONFIG_TEMPLATE = """
+<!doctype html>
+<title>Config</title>
+<h1>Configuration</h1>
+{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+{% if message %}<p style="color:green">{{ message }}</p>{% endif %}
+<form method="post">
+  <h2>General</h2>
+  {% for field in fields %}
+    <label>{{ field.label }}
+      <input name="{{ field.name }}" value="{{ field.value }}" />
+    </label><br />
+  {% endfor %}
+
+  <h2>Quran Schedule</h2>
+  {% for item in quran_fields %}
+    <label>Time <input name="{{ item.time_name }}" value="{{ item.time_value }}" /></label>
+    <label>File <input name="{{ item.file_name }}" value="{{ item.file_value }}" /></label>
+    <br />
+  {% endfor %}
+
+  <h2>Update Password</h2>
+  <label>New password <input type="password" name="new_password" /></label><br />
+  <label>Confirm <input type="password" name="new_password_confirm" /></label><br />
+
+  <button type="submit">Save</button>
+</form>
+<p>Restart the service to apply changes.</p>
+"""
+
 
 def _login_required(handler):
     def wrapper(*args, **kwargs):
@@ -156,6 +199,9 @@ class ControlPanelServer:
     audio_router: Optional[object] = None
     play_handler: Optional[Callable[[str], bool]] = None
     log_path: Optional[str] = None
+    config_path: Optional[str] = None
+    device_mac: Optional[str] = None
+    device_status_provider: Optional[Callable[[], dict]] = None
     quran_times: Sequence[str] = ()
     host: str = "0.0.0.0"
     port: int = 8080
@@ -197,11 +243,13 @@ class ControlPanelServer:
             next_jobs = _sorted_jobs(self.scheduler, limit=5)
             test_jobs = self.test_scheduler.list_test_jobs()
             logs = _tail_log(self.log_path, lines=20)
+            device_status = self._device_status()
             return render_template_string(
                 DASHBOARD_TEMPLATE,
                 next_jobs=next_jobs,
                 test_jobs=test_jobs,
                 logs=logs,
+                device_status=device_status,
             )
 
         @app.route("/status")
@@ -250,6 +298,40 @@ class ControlPanelServer:
             return render_template_string(
                 CONTROLS_TEMPLATE,
                 quran_times=self.quran_times,
+            )
+
+        @app.route("/config", methods=["GET", "POST"])
+        @_login_required
+        def config_page():
+            config_path = self._resolve_config_path()
+            if config_path is None:
+                return render_template_string(
+                    CONFIG_TEMPLATE,
+                    fields=[],
+                    quran_fields=[],
+                    error="Config path is not configured.",
+                    message=None,
+                )
+            error = None
+            message = None
+            data = _load_config_data(config_path)
+
+            if request.method == "POST":
+                data, error = _apply_config_form(data, request.form)
+                if error is None:
+                    error = _validate_config_data(config_path, data)
+                if error is None:
+                    _save_config_data(config_path, data)
+                    message = "Saved. Restart the service to apply changes."
+
+            fields = _config_fields(data)
+            quran_fields = _quran_form_fields(data)
+            return render_template_string(
+                CONFIG_TEMPLATE,
+                fields=fields,
+                quran_fields=quran_fields,
+                error=error,
+                message=message,
             )
 
         @app.post("/controls/volume")
@@ -301,6 +383,16 @@ class ControlPanelServer:
             base.add(f"quran@{time}")
         return base
 
+    def _resolve_config_path(self) -> Optional[Path]:
+        if self.config_path:
+            return Path(self.config_path)
+        return Path("/etc/prayerhub/config.yml")
+
+    def _device_status(self) -> dict:
+        if self.device_status_provider:
+            return self.device_status_provider()
+        return _default_device_status(self.device_mac)
+
 
 def _sorted_jobs(scheduler: Optional[object], limit: int) -> Sequence[object]:
     if scheduler is None:
@@ -325,3 +417,239 @@ def _tail_log(log_path: Optional[str], lines: int) -> str:
 
     parts = content.splitlines()
     return "\n".join(parts[-lines:])
+
+
+def _load_config_data(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def _save_config_data(path: Path, data: dict) -> None:
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def _apply_config_form(data: dict, form) -> tuple[dict, Optional[str]]:
+    updated = dict(data)
+    error = None
+
+    def set_path(target: dict, keys: list[str], value):
+        current = target
+        for key in keys[:-1]:
+            current = current.setdefault(key, {})
+        current[keys[-1]] = value
+
+    def parse_bool(value: str) -> Optional[bool]:
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+        return None
+
+    fields = _config_field_definitions()
+    for field in fields:
+        raw = form.get(field["name"], "").strip()
+        if raw == "":
+            continue
+        if field["type"] == "int":
+            try:
+                value = int(raw)
+            except ValueError:
+                return data, f"Invalid number for {field['label']}"
+        elif field["type"] == "bool":
+            parsed = parse_bool(raw)
+            if parsed is None:
+                return data, f"Invalid boolean for {field['label']}"
+            value = parsed
+        else:
+            value = raw
+        set_path(updated, field["path"], value)
+
+    quran_schedule = []
+    for item in _quran_form_fields(updated):
+        time_value = form.get(item["time_name"], "").strip()
+        file_value = form.get(item["file_name"], "").strip()
+        if not time_value and not file_value:
+            continue
+        if not time_value or not file_value:
+            return data, "Quran schedule entries require both time and file"
+        quran_schedule.append({"time": time_value, "file": file_value})
+    if quran_schedule:
+        set_path(updated, ["audio", "quran_schedule"], quran_schedule)
+
+    new_password = form.get("new_password", "")
+    confirm_password = form.get("new_password_confirm", "")
+    if new_password:
+        if new_password != confirm_password:
+            return data, "Password confirmation does not match"
+        from werkzeug.security import generate_password_hash
+
+        set_path(
+            updated,
+            ["control_panel", "auth", "password_hash"],
+            generate_password_hash(new_password),
+        )
+
+    return updated, error
+
+
+def _validate_config_data(config_path: Path, data: dict) -> Optional[str]:
+    with tempfile.NamedTemporaryFile("w", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        tmp.write(yaml.safe_dump(data, sort_keys=False))
+    try:
+        loader = ConfigLoader(config_path=tmp_path)
+        loader.load()
+    except ConfigError as exc:
+        return str(exc)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    return None
+
+
+def _config_field_definitions() -> list[dict]:
+    return [
+        {"label": "City", "name": "location_city", "path": ["location", "city"], "type": "text"},
+        {"label": "Madhab", "name": "location_madhab", "path": ["location", "madhab"], "type": "text"},
+        {"label": "Timezone", "name": "location_timezone", "path": ["location", "timezone"], "type": "text"},
+        {"label": "API Base URL", "name": "api_base_url", "path": ["api", "base_url"], "type": "text"},
+        {"label": "API Timeout (sec)", "name": "api_timeout", "path": ["api", "timeout_seconds"], "type": "int"},
+        {"label": "API Max Retries", "name": "api_max_retries", "path": ["api", "max_retries"], "type": "int"},
+        {"label": "Prefetch Days", "name": "api_prefetch_days", "path": ["api", "prefetch_days"], "type": "int"},
+        {"label": "Test Audio", "name": "audio_test", "path": ["audio", "test_audio"], "type": "text"},
+        {"label": "Connected Tone", "name": "audio_connected", "path": ["audio", "connected_tone"], "type": "text"},
+        {
+            "label": "Playback Timeout (sec)",
+            "name": "audio_timeout",
+            "path": ["audio", "playback_timeout_seconds"],
+            "type": "int",
+        },
+        {"label": "Adhan Fajr", "name": "adhan_fajr", "path": ["audio", "adhan", "fajr"], "type": "text"},
+        {"label": "Adhan Dhuhr", "name": "adhan_dhuhr", "path": ["audio", "adhan", "dhuhr"], "type": "text"},
+        {"label": "Adhan Asr", "name": "adhan_asr", "path": ["audio", "adhan", "asr"], "type": "text"},
+        {"label": "Adhan Maghrib", "name": "adhan_maghrib", "path": ["audio", "adhan", "maghrib"], "type": "text"},
+        {"label": "Adhan Isha", "name": "adhan_isha", "path": ["audio", "adhan", "isha"], "type": "text"},
+        {"label": "Notif Sunrise", "name": "notif_sunrise", "path": ["audio", "notifications", "sunrise"], "type": "text"},
+        {"label": "Notif Sunset", "name": "notif_sunset", "path": ["audio", "notifications", "sunset"], "type": "text"},
+        {"label": "Notif Midnight", "name": "notif_midnight", "path": ["audio", "notifications", "midnight"], "type": "text"},
+        {"label": "Notif Tahajjud", "name": "notif_tahajjud", "path": ["audio", "notifications", "tahajjud"], "type": "text"},
+        {"label": "Master Volume", "name": "vol_master", "path": ["audio", "volumes", "master_percent"], "type": "int"},
+        {"label": "Adhan Volume", "name": "vol_adhan", "path": ["audio", "volumes", "adhan_percent"], "type": "int"},
+        {
+            "label": "Fajr Adhan Volume",
+            "name": "vol_fajr",
+            "path": ["audio", "volumes", "fajr_adhan_percent"],
+            "type": "int",
+        },
+        {"label": "Quran Volume", "name": "vol_quran", "path": ["audio", "volumes", "quran_percent"], "type": "int"},
+        {
+            "label": "Notification Volume",
+            "name": "vol_notif",
+            "path": ["audio", "volumes", "notification_percent"],
+            "type": "int",
+        },
+        {"label": "Test Volume", "name": "vol_test", "path": ["audio", "volumes", "test_percent"], "type": "int"},
+        {"label": "Bluetooth MAC", "name": "bt_mac", "path": ["bluetooth", "device_mac"], "type": "text"},
+        {
+            "label": "Ensure Default Sink (true/false)",
+            "name": "bt_default_sink",
+            "path": ["bluetooth", "ensure_default_sink"],
+            "type": "bool",
+        },
+        {"label": "Control Panel Enabled (true/false)", "name": "cp_enabled", "path": ["control_panel", "enabled"], "type": "bool"},
+        {"label": "Control Panel Host", "name": "cp_host", "path": ["control_panel", "host"], "type": "text"},
+        {"label": "Control Panel Port", "name": "cp_port", "path": ["control_panel", "port"], "type": "int"},
+        {"label": "Control Panel Username", "name": "cp_user", "path": ["control_panel", "auth", "username"], "type": "text"},
+        {
+            "label": "Max Pending Tests",
+            "name": "cp_tests_pending",
+            "path": ["control_panel", "test_scheduler", "max_pending_tests"],
+            "type": "int",
+        },
+        {
+            "label": "Max Minutes Ahead",
+            "name": "cp_tests_minutes",
+            "path": ["control_panel", "test_scheduler", "max_minutes_ahead"],
+            "type": "int",
+        },
+        {"label": "Log File Path", "name": "log_path", "path": ["logging", "file_path"], "type": "text"},
+    ]
+
+
+def _config_fields(data: dict) -> list[dict]:
+    fields = []
+    for field in _config_field_definitions():
+        value = _get_path(data, field["path"])
+        if value is None:
+            value = ""
+        fields.append(
+            {
+                "label": field["label"],
+                "name": field["name"],
+                "value": value,
+            }
+        )
+    return fields
+
+
+def _quran_form_fields(data: dict) -> list[dict]:
+    entries = data.get("audio", {}).get("quran_schedule", [])
+    fields = []
+    for idx, entry in enumerate(entries):
+        fields.append(
+            {
+                "time_name": f"quran_time_{idx}",
+                "time_value": entry.get("time", ""),
+                "file_name": f"quran_file_{idx}",
+                "file_value": entry.get("file", ""),
+            }
+        )
+    fields.append(
+        {
+            "time_name": f"quran_time_{len(entries)}",
+            "time_value": "",
+            "file_name": f"quran_file_{len(entries)}",
+            "file_value": "",
+        }
+    )
+    return fields
+
+
+def _get_path(data: dict, keys: list[str]):
+    current = data
+    for key in keys:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current
+
+
+def _default_device_status(device_mac: Optional[str]) -> dict:
+    runner = SubprocessCommandRunner()
+
+    bluetooth = "unknown"
+    if device_mac:
+        result = runner.run(
+            ["bluetoothctl", "info", device_mac],
+            timeout=5,
+        )
+        if result.returncode == 0:
+            bluetooth = "connected" if "Connected: yes" in result.stdout else "disconnected"
+        else:
+            bluetooth = "error"
+
+    wifi = "unknown"
+    if runner.which("iwgetid"):
+        result = runner.run(["iwgetid", "-r"], timeout=3)
+        if result.returncode == 0 and result.stdout.strip():
+            wifi = result.stdout.strip()
+        else:
+            wifi = "disconnected"
+
+    ip = "unknown"
+    result = runner.run(["hostname", "-I"], timeout=3)
+    if result.returncode == 0 and result.stdout.strip():
+        ip = result.stdout.strip()
+
+    return {"bluetooth": bluetooth, "wifi": wifi, "ip": ip}

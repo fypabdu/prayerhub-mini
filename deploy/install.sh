@@ -38,9 +38,7 @@ else
   exit 1
 fi
 
-if [ ! -f "$config_dir/config.yml" ]; then
-  cp "$bundle_dir/config.example.yml" "$config_dir/config.yml"
-fi
+cp "$bundle_dir/config.example.yml" "$config_dir/config.yml"
 
 install -m 0644 "$bundle_dir/deploy/prayerhub.service" "$service_file"
 # Allow overriding the service user without editing the unit file by hand.

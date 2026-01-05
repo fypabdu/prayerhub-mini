@@ -21,7 +21,7 @@ When you run `sudo ./deploy/install.sh`, it will:
 - install the app wheel from `dist/*.whl` (or fail if missing)
 - install `deploy/prayerhub.service` into systemd
 - enable + start the `prayerhub` systemd service
-- copy `config.example.yml` to `/etc/prayerhub/config.yml` if missing
+- overwrite `/etc/prayerhub/config.yml` with `config.example.yml`
 
 Manual tasks are called out explicitly in the steps below.
 

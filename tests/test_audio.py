@@ -21,7 +21,7 @@ class FakeRunner:
     def which(self, name: str) -> str | None:
         return name if name in self.available else None
 
-    def run(self, args: list[str], *, timeout: int) -> FakeResult:
+    def run(self, args: list[str], *, timeout: int | None) -> FakeResult:
         self.run_calls.append(args)
         return FakeResult()
 

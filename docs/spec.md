@@ -1169,6 +1169,29 @@ Rules for every ticket:
 **Definition of Done**
 - Sunset notification consistently fires 20 minutes before Maghrib when API lacks sunset.
 
+---
+
+### T33 - Allow disabling audio playback timeout
+**Estimate:** 25 min  
+**Depends on:** T5, T14  
+**Context7 topics:**  
+- subprocess timeouts  
+
+**TDD**
+- when `audio.playback_timeout_seconds` is 0, audio playback runs without a timeout
+- positive timeout still enforces limits
+
+**Steps**
+1. Treat `audio.playback_timeout_seconds: 0` as “no timeout”.
+2. Pass `None` to subprocess when timeout is disabled.
+3. Update config validation and docs to reflect the new behavior.
+
+**Pitfalls**
+- Keep scheduler safe from hangs; document the risk of disabling timeouts.
+
+**Definition of Done**
+- Long adhan/quran audio can play end-to-end when timeout is set to 0.
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

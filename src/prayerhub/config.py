@@ -308,8 +308,8 @@ class ConfigLoader:
                 raise ConfigError(f"Volume percent out of range for {name}: {value}")
 
     def _validate_audio_timeout(self, audio: AudioConfig) -> None:
-        if audio.playback_timeout_seconds <= 0:
-            raise ConfigError("playback_timeout_seconds must be greater than zero")
+        if audio.playback_timeout_seconds < 0:
+            raise ConfigError("playback_timeout_seconds must be zero or greater")
 
     def _validate_control_panel(self, control_panel: ControlPanelConfig) -> None:
         if not control_panel.enabled:

@@ -22,7 +22,7 @@ class FakeRunner:
     def which(self, name: str) -> str | None:
         return None
 
-    def run(self, args: list[str], *, timeout: int) -> FakeProcess:
+    def run(self, args: list[str], *, timeout: int | None) -> FakeProcess:
         self.run_calls.append(args)
         key = tuple(args)
         if key not in self._responses or not self._responses[key]:

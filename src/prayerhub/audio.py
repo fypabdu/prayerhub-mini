@@ -73,7 +73,13 @@ class AudioPlayer:
         self._lock = Lock()
         self._logger = logging.getLogger(self.__class__.__name__)
 
-    def play(self, path: Path, *, volume_percent: int, timeout_seconds: int = 30) -> bool:
+    def play(
+        self,
+        path: Path,
+        *,
+        volume_percent: int,
+        timeout_seconds: int | None = 30,
+    ) -> bool:
         if not path.exists():
             # Fail fast so callers can fall back or alert the operator.
             self._logger.warning("Audio file missing: %s", path)

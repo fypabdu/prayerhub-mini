@@ -23,7 +23,7 @@ class FakePlayer:
         self.should_raise = should_raise
         self.calls: list[tuple[Path, int, int]] = []
 
-    def play(self, path: Path, *, volume_percent: int, timeout_seconds: int = 30) -> bool:
+    def play(self, path: Path, *, volume_percent: int, timeout_seconds: int | None = 30) -> bool:
         if self.should_raise:
             raise RuntimeError("boom")
         self.calls.append((path, volume_percent, timeout_seconds))
@@ -163,3 +163,23 @@ def test_handler_catches_player_errors(tmp_path: Path, monkeypatch) -> None:
     )
 
     assert handler.handle_event("fajr") is False
+
+
+def test_handler_disables_timeout_when_configured(tmp_path: Path, monkeypatch) -> None:
+    audio_dir = tmp_path / "data" / "audio"
+    audio_dir.mkdir(parents=True)
+    (audio_dir / "adhan_fajr.mp3").write_bytes(b"beep")
+    monkeypatch.chdir(tmp_path)
+
+    bluetooth = FakeBluetooth(connected=True)
+    player = FakePlayer()
+    audio = _audio_config()
+    audio = audio.__class__(**{**audio.__dict__, "playback_timeout_seconds": 0})
+    handler = PlaybackHandler(
+        bluetooth=bluetooth,
+        player=player,
+        audio=audio,
+    )
+
+    assert handler.handle_event("fajr") is True
+    assert player.calls == [(audio_dir / "adhan_fajr.mp3", 60, None)]

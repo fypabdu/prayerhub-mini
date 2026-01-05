@@ -27,10 +27,13 @@ class PlaybackHandler:
                 return False
 
             path, volume = selection
+            timeout_seconds = self._audio.playback_timeout_seconds
+            if timeout_seconds == 0:
+                timeout_seconds = None
             return self._player.play(
                 path,
                 volume_percent=volume,
-                timeout_seconds=self._audio.playback_timeout_seconds,
+                timeout_seconds=timeout_seconds,
             )
         except Exception as exc:
             # Never let job handler exceptions crash the scheduler thread.

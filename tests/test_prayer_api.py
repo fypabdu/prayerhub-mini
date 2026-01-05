@@ -26,7 +26,7 @@ class FakeSession:
         self._results = list(results)
         self.calls: list[tuple[str, dict[str, str], int]] = []
 
-    def get(self, url: str, *, params: dict[str, str], timeout: int):
+    def get(self, url: str, *, params: dict[str, str], timeout: int | None):
         self.calls.append((url, params, timeout))
         if not self._results:
             raise AssertionError("No fake result configured")

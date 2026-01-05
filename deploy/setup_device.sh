@@ -81,16 +81,48 @@ prompt_password() {
 
 prompt_file() {
   local label="$1"
-  local source_dir="$2"
-  local default_name="${3:-}"
+  local default_name="${2:-}"
   local filename
   while true; do
-    filename="$(prompt "$label filename (in ${source_dir})" "$default_name")"
-    if [ -f "${source_dir}/${filename}" ]; then
+    read -r -p "${label} (enter number or filename) [${default_name}]: " filename
+    if [ "$filename" = "q" ] || [ "$filename" = "quit" ]; then
+      echo "Setup cancelled."
+      exit 1
+    fi
+    if [ -z "$filename" ]; then
+      filename="$default_name"
+    fi
+    if [[ "$filename" =~ ^[0-9]+$ ]]; then
+      local index=$((filename - 1))
+      if [ "$index" -ge 0 ] && [ "$index" -lt "${#audio_files[@]}" ]; then
+        filename="${audio_files[$index]}"
+      else
+        echo "Invalid selection: $filename"
+        continue
+      fi
+    fi
+    if [ -n "$filename" ] && [ -f "${audio_source_dir}/${filename}" ]; then
       echo "$filename"
       return 0
     fi
-    echo "File not found: ${source_dir}/${filename}"
+    echo "File not found: ${audio_source_dir}/${filename}"
+  done
+}
+
+load_audio_files() {
+  mapfile -t audio_files < <(find "$audio_source_dir" -maxdepth 1 -type f -printf "%f\n" | sort)
+  if [ "${#audio_files[@]}" -eq 0 ]; then
+    echo "No audio files found in ${audio_source_dir}" >&2
+    exit 1
+  fi
+}
+
+print_audio_files() {
+  echo "Available audio files in ${audio_source_dir}:"
+  local i=1
+  for file in "${audio_files[@]}"; do
+    echo "  ${i}) ${file}"
+    i=$((i + 1))
   done
 }
 
@@ -150,22 +182,25 @@ if [ ! -d "$audio_source_dir" ]; then
   exit 1
 fi
 
-test_audio="$(prompt_file "Test audio" "$audio_source_dir" "2sec-audio.mp3")"
-connected_audio="$(prompt_file "Connected tone" "$audio_source_dir" "$test_audio")"
+load_audio_files
+print_audio_files
 
-adhan_fajr="$(prompt_file "Adhan fajr" "$audio_source_dir" "adhan_fajr.mp3")"
-adhan_dhuhr="$(prompt_file "Adhan dhuhr" "$audio_source_dir" "$adhan_fajr")"
-adhan_asr="$(prompt_file "Adhan asr" "$audio_source_dir" "$adhan_fajr")"
-adhan_maghrib="$(prompt_file "Adhan maghrib" "$audio_source_dir" "$adhan_fajr")"
-adhan_isha="$(prompt_file "Adhan isha" "$audio_source_dir" "$adhan_fajr")"
+test_audio="$(prompt_file "Test audio" "2sec-audio.mp3")"
+connected_audio="$(prompt_file "Connected tone" "$test_audio")"
 
-notif_sunrise="$(prompt_file "Notification sunrise" "$audio_source_dir" "$test_audio")"
-notif_sunset="$(prompt_file "Notification sunset" "$audio_source_dir" "$test_audio")"
-notif_midnight="$(prompt_file "Notification midnight" "$audio_source_dir" "$test_audio")"
-notif_tahajjud="$(prompt_file "Notification tahajjud" "$audio_source_dir" "$test_audio")"
+adhan_fajr="$(prompt_file "Adhan fajr" "adhan_fajr.mp3")"
+adhan_dhuhr="$(prompt_file "Adhan dhuhr" "$adhan_fajr")"
+adhan_asr="$(prompt_file "Adhan asr" "$adhan_fajr")"
+adhan_maghrib="$(prompt_file "Adhan maghrib" "$adhan_fajr")"
+adhan_isha="$(prompt_file "Adhan isha" "$adhan_fajr")"
+
+notif_sunrise="$(prompt_file "Notification sunrise" "$test_audio")"
+notif_sunset="$(prompt_file "Notification sunset" "$test_audio")"
+notif_midnight="$(prompt_file "Notification midnight" "$test_audio")"
+notif_tahajjud="$(prompt_file "Notification tahajjud" "$test_audio")"
 
 quran_time="$(prompt "Quran schedule time (HH:MM)" "06:30")"
-quran_file="$(prompt_file "Quran audio" "$audio_source_dir" "$adhan_fajr")"
+quran_file="$(prompt_file "Quran audio" "$adhan_fajr")"
 
 echo "Step 5/6: Copy audio files into ${audio_dir}"
 cp "${audio_source_dir}/${test_audio}" "${audio_dir}/${test_audio}"

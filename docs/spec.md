@@ -1192,6 +1192,29 @@ Rules for every ticket:
 **Definition of Done**
 - Long adhan/quran audio can play end-to-end when timeout is set to 0.
 
+---
+
+### T34 - Interactive setup file picker
+**Estimate:** 25 min  
+**Depends on:** T10  
+**Context7 topics:**  
+- bash input handling  
+
+**TDD**
+- user can select audio files by number from a list
+- selecting defaults works without retyping filenames
+
+**Steps**
+1. List available audio files in the chosen folder with numeric indexes.
+2. Allow the user to choose by number or press enter for defaults.
+3. Reuse the selection flow for repeated runs to reduce typing.
+
+**Pitfalls**
+- Validate selection indexes and file existence.
+
+**Definition of Done**
+- Setup script lets users select audio files by number instead of typing full filenames.
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

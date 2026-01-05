@@ -1264,6 +1264,31 @@ Rules for every ticket:
 **Definition of Done**
 - Control panel can edit config and display device status details.
 
+---
+
+### T37 - Bluetooth keep-alive (silent ping)
+**Estimate:** 35 min  
+**Depends on:** T5, T7  
+**Context7 topics:**  
+- APScheduler interval jobs  
+
+**TDD**
+- keep-alive job skips when audio is playing
+- keep-alive job runs every 5 minutes when idle
+
+**Steps**
+1. Add an optional keep-alive feature in config (interval minutes, enabled flag, optional audio file).
+2. Schedule an interval job that runs every 5 minutes.
+3. If audio is currently playing, skip; otherwise trigger a near-silent or muted playback.
+4. Log keep-alive actions and skips.
+
+**Pitfalls**
+- Do not overlap with real playback; respect the playback lock.
+- Keep volume effectively silent (or use backend ping if available).
+
+**Definition of Done**
+- Idle device stays connected without audible playback; no interference with real audio.
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

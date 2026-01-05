@@ -114,3 +114,6 @@ class AudioPlayer:
             return False
         finally:
             self._lock.release()
+
+    def is_playing(self) -> bool:
+        return self._lock.locked()

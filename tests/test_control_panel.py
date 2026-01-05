@@ -269,6 +269,12 @@ bluetooth:
   device_mac: "AA:BB:CC:DD:EE:FF"
   ensure_default_sink: true
 
+keepalive:
+  enabled: false
+  interval_minutes: 5
+  audio_file: "{audio_dir / 'test.mp3'}"
+  volume_percent: 1
+
 control_panel:
   enabled: true
   host: "0.0.0.0"

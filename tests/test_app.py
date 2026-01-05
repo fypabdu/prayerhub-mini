@@ -55,6 +55,12 @@ bluetooth:
   device_mac: "AA:BB:CC:DD:EE:FF"
   ensure_default_sink: true
 
+keepalive:
+  enabled: false
+  interval_minutes: 5
+  audio_file: "data/audio/test_beep.mp3"
+  volume_percent: 1
+
 control_panel:
   enabled: false
   host: "0.0.0.0"
@@ -125,7 +131,11 @@ def test_scheduler_starts_with_control_panel_enabled(tmp_path: Path, monkeypatch
     test_audio.write_bytes(b"beep")
     _seed_audio_files(tmp_path)
     config_path = tmp_path / "config.yml"
-    _write_yaml(config_path, _base_config("test_beep.mp3").replace("enabled: false", "enabled: true"))
+    config_text = _base_config("test_beep.mp3").replace(
+        "control_panel:\n  enabled: false",
+        "control_panel:\n  enabled: true",
+    )
+    _write_yaml(config_path, config_text)
 
     monkeypatch.setenv("PRAYERHUB_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.chdir(tmp_path)

@@ -55,10 +55,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     job_handler = _make_noop_handler(logger, dry_run=args.dry_run)
     audio_router = None
     play_handler = None
+    keepalive_service = None
+    bluetooth = None
     if not args.dry_run:
         from prayerhub.audio import AudioPlayer, AudioRouter
         from prayerhub.bluetooth import BluetoothManager
         from prayerhub.command_runner import SubprocessCommandRunner
+        from prayerhub.keepalive import KeepAliveService
         from prayerhub.playback import PlaybackHandler
 
         runner = SubprocessCommandRunner()
@@ -80,6 +83,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         )
         audio_router = router
         play_handler = playback.handle_event
+
+        if config.keepalive.enabled:
+            keepalive_service = KeepAliveService(
+                scheduler=scheduler,
+                player=player,
+                bluetooth=bluetooth,
+                audio_file=config.keepalive.audio_file,
+                volume_percent=config.keepalive.volume_percent,
+                interval_minutes=config.keepalive.interval_minutes,
+            )
 
         def handle(plan, name):
             playback.handle_event(name)
@@ -117,6 +130,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         config.api.prefetch_days,
         quran_times=quran_times,
     )
+    if keepalive_service is not None:
+        keepalive_service.schedule()
 
     if config.control_panel.enabled:
         from prayerhub.control_panel import ControlPanelServer
@@ -190,6 +205,12 @@ def _config_summary(config) -> dict:
         "bluetooth": {
             "device_mac": config.bluetooth.device_mac,
             "ensure_default_sink": config.bluetooth.ensure_default_sink,
+        },
+        "keepalive": {
+            "enabled": config.keepalive.enabled,
+            "interval_minutes": config.keepalive.interval_minutes,
+            "audio_file": config.keepalive.audio_file,
+            "volume_percent": config.keepalive.volume_percent,
         },
         "control_panel": {
             "enabled": config.control_panel.enabled,

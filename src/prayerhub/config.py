@@ -56,6 +56,14 @@ class BluetoothConfig:
 
 
 @dataclass(frozen=True)
+class KeepAliveConfig:
+    enabled: bool
+    interval_minutes: int
+    audio_file: str
+    volume_percent: int
+
+
+@dataclass(frozen=True)
 class ControlPanelAuthConfig:
     username: str
     password_hash: str
@@ -110,6 +118,7 @@ class AppConfig:
     api: ApiConfig
     audio: AudioConfig
     bluetooth: BluetoothConfig
+    keepalive: KeepAliveConfig
     control_panel: ControlPanelConfig
     logging: LoggingConfig
 
@@ -189,6 +198,7 @@ class ConfigLoader:
             audio_data = data["audio"]
             bluetooth_data = data["bluetooth"]
             control_panel_data = data["control_panel"]
+            keepalive_data = data.get("keepalive", {})
         except KeyError as exc:
             raise ConfigError(f"Missing config section: {exc.args[0]}") from exc
 
@@ -244,6 +254,12 @@ class ConfigLoader:
             device_mac=bluetooth_data["device_mac"],
             ensure_default_sink=bool(bluetooth_data["ensure_default_sink"]),
         )
+        keepalive = KeepAliveConfig(
+            enabled=bool(keepalive_data.get("enabled", False)),
+            interval_minutes=int(keepalive_data.get("interval_minutes", 5)),
+            audio_file=str(keepalive_data.get("audio_file", audio_data["test_audio"])),
+            volume_percent=int(keepalive_data.get("volume_percent", 1)),
+        )
         auth_data = control_panel_data["auth"]
         test_scheduler_data = control_panel_data["test_scheduler"]
         control_panel = ControlPanelConfig(
@@ -268,6 +284,7 @@ class ConfigLoader:
             api=api,
             audio=audio,
             bluetooth=bluetooth,
+            keepalive=keepalive,
             control_panel=control_panel,
             logging=logging_config,
         )
@@ -276,6 +293,7 @@ class ConfigLoader:
         self._validate_audio_paths(config.audio)
         self._validate_volumes(config.audio.volumes)
         self._validate_audio_timeout(config.audio)
+        self._validate_keepalive(config.keepalive)
         self._validate_control_panel(config.control_panel)
 
     def _validate_audio_paths(self, audio: AudioConfig) -> None:
@@ -318,3 +336,15 @@ class ConfigLoader:
             raise ConfigError("Control panel username is required")
         if not control_panel.auth.password_hash:
             raise ConfigError("Control panel password_hash is required")
+
+    def _validate_keepalive(self, keepalive: KeepAliveConfig) -> None:
+        if keepalive.interval_minutes <= 0:
+            raise ConfigError("keepalive.interval_minutes must be greater than zero")
+        if not 0 <= keepalive.volume_percent <= 100:
+            raise ConfigError("keepalive.volume_percent out of range")
+        if keepalive.enabled:
+            path = Path(keepalive.audio_file)
+            if not path.is_absolute():
+                path = Path.cwd() / path
+            if not path.exists():
+                raise ConfigError(f"Keepalive audio file does not exist: {path}")

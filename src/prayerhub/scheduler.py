@@ -78,6 +78,7 @@ class JobScheduler:
             coalesce=True,
             max_instances=1,
         )
+        self._logger.info("Scheduled refresh job at %02d:%02d", hour, minute)
 
     def refresh_and_reschedule(self) -> None:
         # This method is intended to be injected or overridden by the app layer.

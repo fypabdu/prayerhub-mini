@@ -22,6 +22,7 @@ When you run `sudo ./deploy/install.sh`, it will:
 - install `deploy/prayerhub.service` into systemd
 - enable + start the `prayerhub` systemd service
 - overwrite `/etc/prayerhub/config.yml` with `config.example.yml`
+- stop the running service and force-reinstall the wheel on update
 
 Manual tasks are called out explicitly in the steps below.
 

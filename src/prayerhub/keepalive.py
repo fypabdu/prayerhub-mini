@@ -19,7 +19,7 @@ class KeepAliveService:
     job_id: str = "keepalive_audio"
 
     def __post_init__(self) -> None:
-        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger = logging.getLogger("prayerhub")
 
     def schedule(self) -> None:
         self.scheduler.add_job(

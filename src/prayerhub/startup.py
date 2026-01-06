@@ -28,6 +28,7 @@ def schedule_refresh(
     logger = logging.getLogger("Startup")
 
     def refresh() -> None:
+        logger.info("Refreshing prayer times and schedule")
         prayer_service.prefetch(days=prefetch_days)
         today = scheduler.now_provider().date()
         for day in [today, today + timedelta(days=1)]:

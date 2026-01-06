@@ -95,6 +95,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             )
 
         def handle(plan, name):
+            logger.info("Executing scheduled event %s for %s", name, plan.date)
             playback.handle_event(name)
 
         job_handler = handle
@@ -132,6 +133,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     )
     if keepalive_service is not None:
         keepalive_service.schedule()
+        logger.info(
+            "Keepalive enabled: interval=%s min file=%s volume=%s",
+            config.keepalive.interval_minutes,
+            config.keepalive.audio_file,
+            config.keepalive.volume_percent,
+        )
+    else:
+        logger.info("Keepalive disabled")
 
     if config.control_panel.enabled:
         from prayerhub.control_panel import ControlPanelServer

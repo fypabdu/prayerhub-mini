@@ -63,10 +63,18 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         from prayerhub.command_runner import SubprocessCommandRunner
         from prayerhub.keepalive import KeepAliveService
         from prayerhub.playback import PlaybackHandler
+        from prayerhub.playback_timeout import FfprobeDurationProbe, PlaybackTimeoutPolicy
 
         runner = SubprocessCommandRunner()
         router = AudioRouter(runner)
         player = AudioPlayer(runner, router)
+        duration_probe = FfprobeDurationProbe(runner)
+        timeout_policy = PlaybackTimeoutPolicy(
+            strategy=config.audio.playback_timeout_strategy,
+            fallback_seconds=config.audio.playback_timeout_seconds,
+            buffer_seconds=config.audio.playback_timeout_buffer_seconds,
+            duration_probe=duration_probe,
+        )
         bluetooth = BluetoothManager(
             runner=runner,
             audio_router=router,
@@ -80,6 +88,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             bluetooth=bluetooth,
             player=player,
             audio=config.audio,
+            timeout_policy=timeout_policy,
         )
         audio_router = router
         play_handler = playback.handle_event
@@ -92,6 +101,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 audio_file=config.keepalive.audio_file,
                 volume_percent=config.keepalive.volume_percent,
                 interval_minutes=config.keepalive.interval_minutes,
+                timeout_policy=timeout_policy
+                if config.audio.playback_timeout_strategy == "auto"
+                else None,
             )
 
         def handle(plan, name):
@@ -210,6 +222,8 @@ def _config_summary(config) -> dict:
                 "test_percent": config.audio.volumes.test_percent,
             },
             "playback_timeout_seconds": config.audio.playback_timeout_seconds,
+            "playback_timeout_strategy": config.audio.playback_timeout_strategy,
+            "playback_timeout_buffer_seconds": config.audio.playback_timeout_buffer_seconds,
         },
         "bluetooth": {
             "device_mac": config.bluetooth.device_mac,

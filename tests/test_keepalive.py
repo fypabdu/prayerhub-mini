@@ -16,7 +16,7 @@ class FakePlayer:
     def is_playing(self) -> bool:
         return self._playing
 
-    def play(self, path: Path, *, volume_percent: int) -> bool:
+    def play(self, path: Path, *, volume_percent: int, timeout_seconds: int | None = 30) -> bool:
         self.calls.append(path)
         return True
 

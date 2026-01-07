@@ -13,6 +13,8 @@ audio:
   test_audio: "data/audio/test_beep.mp3"
   connected_tone: "data/audio/connected.mp3"
   playback_timeout_seconds: 300 # Set to 0 to disable timeout (not recommended).
+  playback_timeout_strategy: "auto" # fixed or auto (advanced users only).
+  playback_timeout_buffer_seconds: 5 # Extra seconds added when using auto.
   adhan:
     fajr: "data/audio/adhan_fajr.mp3"
     dhuhr: "data/audio/adhan_dhuhr.mp3"

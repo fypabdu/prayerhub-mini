@@ -263,6 +263,9 @@ api:
 audio:
   test_audio: "data/audio/test_beep.mp3"
   connected_tone: "data/audio/connected.mp3"
+  playback_timeout_seconds: 300
+  playback_timeout_strategy: "auto" # fixed or auto (advanced users only)
+  playback_timeout_buffer_seconds: 5
   volumes:
     master_percent: 60
     adhan_percent: 85
@@ -292,6 +295,7 @@ Validation rules:
 - audio files exist
 - `device_mac` format is valid
 - if control panel enabled: username non-empty, password_hash present
+- `playback_timeout_strategy` is `fixed` or `auto`
 
 ---
 
@@ -1191,6 +1195,27 @@ Rules for every ticket:
 
 **Definition of Done**
 - Long adhan/quran audio can play end-to-end when timeout is set to 0.
+
+---
+
+### T33b - Auto playback timeout from audio duration (complete)
+**Estimate:** 25 min  
+**Depends on:** T33  
+**Context7 topics:**  
+- ffprobe duration output  
+
+**TDD**
+- auto timeout uses audio duration + buffer when available
+- falls back to fixed timeout when duration cannot be read
+
+**Steps**
+1. Add `audio.playback_timeout_strategy` with `fixed` (default) and `auto` modes.
+2. When in `auto`, read duration with `ffprobe` and add `audio.playback_timeout_buffer_seconds`.
+3. Fall back to `audio.playback_timeout_seconds` when duration is missing or invalid.
+4. Document the `ffprobe` dependency and config fields.
+
+**Definition of Done**
+- Playback timeout is derived from audio duration when `auto` is enabled and `ffprobe` is available.
 
 ---
 

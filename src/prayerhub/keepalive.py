@@ -5,6 +5,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from prayerhub.playback_timeout import PlaybackTimeoutPolicy
+
 from apscheduler.triggers.interval import IntervalTrigger
 
 
@@ -16,6 +18,7 @@ class KeepAliveService:
     audio_file: str
     volume_percent: int
     interval_minutes: int
+    timeout_policy: Optional[PlaybackTimeoutPolicy] = None
     job_id: str = "keepalive_audio"
 
     def __post_init__(self) -> None:
@@ -51,7 +54,15 @@ class KeepAliveService:
             return
 
         self._logger.info("Keepalive playback: %s", path)
-        self.player.play(path, volume_percent=self.volume_percent)
+        if self.timeout_policy is None:
+            self.player.play(path, volume_percent=self.volume_percent)
+            return
+        timeout_seconds = self.timeout_policy.resolve(path)
+        self.player.play(
+            path,
+            volume_percent=self.volume_percent,
+            timeout_seconds=timeout_seconds,
+        )
 
     def _resolve(self, path_str: str) -> Path:
         path = Path(path_str)

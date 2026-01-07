@@ -21,13 +21,23 @@ class FakeBluetooth:
 class FakePlayer:
     def __init__(self, should_raise: bool = False) -> None:
         self.should_raise = should_raise
-        self.calls: list[tuple[Path, int, int]] = []
+        self.calls: list[tuple[Path, int, int | None]] = []
 
     def play(self, path: Path, *, volume_percent: int, timeout_seconds: int | None = 30) -> bool:
         if self.should_raise:
             raise RuntimeError("boom")
         self.calls.append((path, volume_percent, timeout_seconds))
         return True
+
+
+class FakeTimeoutPolicy:
+    def __init__(self, timeout_seconds: int | None) -> None:
+        self.timeout_seconds = timeout_seconds
+        self.calls: list[Path] = []
+
+    def resolve(self, path: Path) -> int | None:
+        self.calls.append(path)
+        return self.timeout_seconds
 
 
 def _audio_config() -> AudioConfig:
@@ -57,6 +67,8 @@ def _audio_config() -> AudioConfig:
             test_percent=70,
         ),
         playback_timeout_seconds=300,
+        playback_timeout_strategy="fixed",
+        playback_timeout_buffer_seconds=5,
     )
 
 
@@ -183,6 +195,29 @@ def test_handler_disables_timeout_when_configured(tmp_path: Path, monkeypatch) -
 
     assert handler.handle_event("fajr") is True
     assert player.calls == [(audio_dir / "adhan_fajr.mp3", 60, None)]
+
+
+def test_handler_uses_timeout_policy_when_provided(tmp_path: Path, monkeypatch) -> None:
+    audio_dir = tmp_path / "data" / "audio"
+    audio_dir.mkdir(parents=True)
+    (audio_dir / "adhan_fajr.mp3").write_bytes(b"beep")
+    monkeypatch.chdir(tmp_path)
+
+    bluetooth = FakeBluetooth(connected=True)
+    player = FakePlayer()
+    policy = FakeTimeoutPolicy(42)
+    audio = _audio_config()
+    audio = audio.__class__(**{**audio.__dict__, "playback_timeout_strategy": "auto"})
+    handler = PlaybackHandler(
+        bluetooth=bluetooth,
+        player=player,
+        audio=audio,
+        timeout_policy=policy,
+    )
+
+    assert handler.handle_event("fajr") is True
+    assert policy.calls == [audio_dir / "adhan_fajr.mp3"]
+    assert player.calls == [(audio_dir / "adhan_fajr.mp3", 60, 42)]
 
 
 def test_handler_logs_playback_details(tmp_path: Path, monkeypatch, caplog) -> None:

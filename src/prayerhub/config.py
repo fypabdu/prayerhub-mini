@@ -47,6 +47,8 @@ class AudioConfig:
     notifications: "NotificationAudio"
     volumes: AudioVolumes
     playback_timeout_seconds: int
+    playback_timeout_strategy: str
+    playback_timeout_buffer_seconds: int
 
 
 @dataclass(frozen=True)
@@ -249,6 +251,12 @@ class ConfigLoader:
             notifications=notifications,
             volumes=volumes,
             playback_timeout_seconds=int(audio_data.get("playback_timeout_seconds", 300)),
+            playback_timeout_strategy=str(
+                audio_data.get("playback_timeout_strategy", "auto")
+            ).lower(),
+            playback_timeout_buffer_seconds=int(
+                audio_data.get("playback_timeout_buffer_seconds", 5)
+            ),
         )
         bluetooth = BluetoothConfig(
             device_mac=bluetooth_data["device_mac"],
@@ -328,6 +336,12 @@ class ConfigLoader:
     def _validate_audio_timeout(self, audio: AudioConfig) -> None:
         if audio.playback_timeout_seconds < 0:
             raise ConfigError("playback_timeout_seconds must be zero or greater")
+        if audio.playback_timeout_buffer_seconds < 0:
+            raise ConfigError("playback_timeout_buffer_seconds must be zero or greater")
+        if audio.playback_timeout_strategy not in {"fixed", "auto"}:
+            raise ConfigError(
+                "playback_timeout_strategy must be one of: fixed, auto"
+            )
 
     def _validate_control_panel(self, control_panel: ControlPanelConfig) -> None:
         if not control_panel.enabled:

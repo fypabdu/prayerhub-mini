@@ -19,7 +19,7 @@ fi
 # Install system packages once to keep audio and Bluetooth available.
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
-  apt-get install -y mpg123 bluez
+  apt-get install -y mpg123 bluez ffmpeg
 fi
 
 # Reuse the virtualenv if present so re-running install stays fast.

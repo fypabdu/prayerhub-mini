@@ -243,6 +243,8 @@ audio:
   test_audio: "{audio_dir / 'test.mp3'}"
   connected_tone: "{audio_dir / 'connected.mp3'}"
   playback_timeout_seconds: 300
+  playback_timeout_strategy: "fixed"
+  playback_timeout_buffer_seconds: 5
   adhan:
     fajr: "{audio_dir / 'adhan_fajr.mp3'}"
     dhuhr: "{audio_dir / 'adhan_dhuhr.mp3'}"

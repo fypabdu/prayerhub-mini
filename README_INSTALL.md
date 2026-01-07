@@ -34,7 +34,9 @@ sudo nano /etc/prayerhub/config.yml
 Note: `install.sh` replaces `/etc/prayerhub/config.yml` on every run.
 Note: `install.sh` stops the service and force-reinstalls the wheel to ensure updates apply.
 
-Make sure `audio.playback_timeout_seconds` is set high enough for your longest audio file (use `0` to disable timeout).
+Playback timeouts default to `auto` (duration-based) and rely on `ffprobe`,
+which `install.sh` installs via `ffmpeg`. Advanced users can set
+`audio.playback_timeout_strategy: "fixed"` to use a static timeout.
 
 ## Audio files
 

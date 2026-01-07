@@ -5,13 +5,22 @@ from pathlib import Path
 from typing import Optional
 
 from prayerhub.config import AudioConfig
+from prayerhub.playback_timeout import PlaybackTimeoutPolicy
 
 
 class PlaybackHandler:
-    def __init__(self, *, bluetooth, player, audio: AudioConfig) -> None:
+    def __init__(
+        self,
+        *,
+        bluetooth,
+        player,
+        audio: AudioConfig,
+        timeout_policy: Optional[PlaybackTimeoutPolicy] = None,
+    ) -> None:
         self._bluetooth = bluetooth
         self._player = player
         self._audio = audio
+        self._timeout_policy = timeout_policy
         self._logger = logging.getLogger(self.__class__.__name__)
 
     def handle_event(self, event_name: str) -> bool:
@@ -27,16 +36,14 @@ class PlaybackHandler:
                 return False
 
             path, volume = selection
+            timeout_seconds = self._resolve_timeout(path)
             self._logger.info(
                 "Playback event=%s path=%s volume=%s timeout=%s",
                 event_name,
                 path,
                 volume,
-                self._audio.playback_timeout_seconds,
+                timeout_seconds,
             )
-            timeout_seconds = self._audio.playback_timeout_seconds
-            if timeout_seconds == 0:
-                timeout_seconds = None
             return self._player.play(
                 path,
                 volume_percent=volume,
@@ -77,6 +84,14 @@ class PlaybackHandler:
                         self._audio.volumes.quran_percent,
                     )
         return None
+
+    def _resolve_timeout(self, path: Path) -> Optional[int]:
+        if self._timeout_policy is not None:
+            return self._timeout_policy.resolve(path)
+        timeout_seconds = self._audio.playback_timeout_seconds
+        if timeout_seconds == 0:
+            return None
+        return timeout_seconds
 
     def _resolve(self, path_str: str) -> Path:
         path = Path(path_str)

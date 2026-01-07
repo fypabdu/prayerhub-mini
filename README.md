@@ -27,6 +27,23 @@ poetry run pytest -q
 poetry run python -m prayerhub.app --config ./config.yml --dry-run
 ```
 
+## Playback timeout strategy
+
+Audio playback timeouts default to a fixed limit, but you can switch to
+duration-based timeouts when `ffprobe` is available. Auto mode uses the audio
+file duration plus a small buffer, and falls back to `playback_timeout_seconds`
+if the duration cannot be read.
+
+```yaml
+audio:
+  playback_timeout_seconds: 300
+  playback_timeout_strategy: "auto" # fixed or auto (advanced users only)
+  playback_timeout_buffer_seconds: 5
+```
+
+When `playback_timeout_strategy` is `auto`, install `ffprobe` (from ffmpeg) on
+the device to enable duration detection.
+
 ## End-to-end validation checklist (manual)
 
 - boot device and confirm `prayerhub` service is active

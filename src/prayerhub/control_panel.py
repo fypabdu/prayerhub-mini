@@ -525,6 +525,18 @@ def _config_field_definitions() -> list[dict]:
             "path": ["audio", "playback_timeout_seconds"],
             "type": "int",
         },
+        {
+            "label": "Playback Timeout Strategy (fixed/auto, advanced)",
+            "name": "audio_timeout_strategy",
+            "path": ["audio", "playback_timeout_strategy"],
+            "type": "text",
+        },
+        {
+            "label": "Playback Timeout Buffer (sec)",
+            "name": "audio_timeout_buffer",
+            "path": ["audio", "playback_timeout_buffer_seconds"],
+            "type": "int",
+        },
         {"label": "Adhan Fajr", "name": "adhan_fajr", "path": ["audio", "adhan", "fajr"], "type": "text"},
         {"label": "Adhan Dhuhr", "name": "adhan_dhuhr", "path": ["audio", "adhan", "dhuhr"], "type": "text"},
         {"label": "Adhan Asr", "name": "adhan_asr", "path": ["audio", "adhan", "asr"], "type": "text"},

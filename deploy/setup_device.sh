@@ -258,6 +258,9 @@ def set_path(value):
 data.setdefault("audio", {})
 data["audio"]["test_audio"] = set_path(os.environ["PRAYERHUB_TEST_AUDIO"])
 data["audio"]["connected_tone"] = set_path(os.environ["PRAYERHUB_CONNECTED_AUDIO"])
+data["audio"].setdefault("playback_timeout_seconds", 300)
+data["audio"]["playback_timeout_strategy"] = "auto"
+data["audio"].setdefault("playback_timeout_buffer_seconds", 5)
 data.setdefault("audio", {}).setdefault("adhan", {})
 data["audio"]["adhan"]["fajr"] = set_path(os.environ["PRAYERHUB_ADHAN_FAJR"])
 data["audio"]["adhan"]["dhuhr"] = set_path(os.environ["PRAYERHUB_ADHAN_DHUHR"])

@@ -172,6 +172,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             quran_times=tuple(quran_times),
             config_path=str(config_path) if config_path else None,
             device_mac=config.bluetooth.device_mac,
+            prayer_service=prayer_service,
+            command_runner=runner,
         )
         scheduler.start()
         logger.info("Starting control panel on %s:%s", server.host, server.port)

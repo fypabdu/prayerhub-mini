@@ -1291,6 +1291,37 @@ Rules for every ticket:
 
 ---
 
+### T38 - Control panel overhaul (SPA + config restart + schedules + logs)
+**Estimate:** 4.0 hrs  
+**Depends on:** T36, T12  
+**Context7 topics:**  
+- Flask templates  
+- systemd service management  
+
+**TDD**
+- config save succeeds without 500 errors
+- restart action is available and protected by auth
+- dashboard shows today’s prayer times, upcoming events, and logs
+- responsive layout works on mobile and desktop
+
+**Subtasks**
+1. Fix config save permissions and implement atomic writes for `/etc/prayerhub/config.yml`.
+2. Add a "Save + Restart" action that restarts the systemd service after save.
+3. Redesign `/` as a single-page dashboard with styled sections and minimal JS.
+4. Show today’s prayer times (API/cache) and highlight stale data when needed.
+5. Display a scrollable table of upcoming scheduled events (sorted by next run).
+6. Improve log viewer: newest first, 24h history, scrollable panel.
+
+**Pitfalls**
+- Require auth for restart actions and config changes.
+- Avoid loading unbounded log files; cap entries.
+- Keep dependencies light; prefer local CSS/JS.
+
+**Definition of Done**
+- Control panel is a polished SPA-style dashboard that supports save+restart, shows prayer times, upcoming events, and a usable log viewer.
+
+---
+
 ### T37 - Bluetooth keep-alive (silent ping)
 **Estimate:** 35 min  
 **Depends on:** T5, T7  

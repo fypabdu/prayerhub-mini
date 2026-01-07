@@ -291,6 +291,8 @@ data["logging"]["file_path"] = "/var/log/prayerhub/prayerhub.log"
 config_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
 PY
 
+chown "${service_user}:${service_user}" /etc/prayerhub /etc/prayerhub/config.yml
+
 systemctl restart prayerhub.service
 
 echo "Setup complete."

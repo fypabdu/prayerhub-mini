@@ -10,7 +10,7 @@ service_file="/etc/systemd/system/prayerhub.service"
 service_user="${PRAYERHUB_USER:-${SUDO_USER:-pi}}"
 
 mkdir -p "$app_dir" "$config_dir" "$log_dir" "$cache_dir"
-chown -R "$service_user":"$service_user" "$log_dir" "$cache_dir"
+chown -R "$service_user":"$service_user" "$log_dir" "$cache_dir" "$config_dir"
 
 if systemctl is-active --quiet prayerhub.service; then
   systemctl stop prayerhub.service
@@ -45,10 +45,20 @@ else
 fi
 
 cp "$bundle_dir/config.example.yml" "$config_dir/config.yml"
+chown "$service_user":"$service_user" "$config_dir/config.yml"
+chmod 0644 "$config_dir/config.yml"
 
 install -m 0644 "$bundle_dir/deploy/prayerhub.service" "$service_file"
 # Allow overriding the service user without editing the unit file by hand.
 sed -i "s/^User=.*/User=${service_user}/" "$service_file"
+
+if command -v systemctl >/dev/null 2>&1; then
+  sudoers_file="/etc/sudoers.d/prayerhub"
+  cat >"$sudoers_file" <<EOF
+${service_user} ALL=NOPASSWD: /bin/systemctl restart prayerhub.service
+EOF
+  chmod 0440 "$sudoers_file"
+fi
 
 systemctl daemon-reload
 systemctl enable --now prayerhub.service

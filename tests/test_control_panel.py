@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import subprocess
 from typing import Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from werkzeug.security import generate_password_hash
 
 from prayerhub.control_panel import ControlPanelServer
+from prayerhub.prayer_times import DayPlan
 from prayerhub.test_scheduler import TestScheduleService
 
 
@@ -36,10 +38,37 @@ class FakePlayer:
         return True
 
 
+class FakeRunner:
+    def __init__(self, returncode: int = 0) -> None:
+        self.calls: list[list[str]] = []
+        self.returncode = returncode
+
+    def run(self, args, timeout):
+        self.calls.append(list(args))
+        return subprocess.CompletedProcess(args, self.returncode, "", "")
+
+    def which(self, name: str):
+        return None
+
+
+class FakePrayerService:
+    def __init__(self, plan: DayPlan | None) -> None:
+        self.plan = plan
+        self.prefetch_calls: list[int] = []
+
+    def get_day(self, _day):
+        return self.plan
+
+    def prefetch(self, days: int) -> None:
+        self.prefetch_calls.append(days)
+
+
 def _make_app(
     *,
     config_path: Path | None = None,
     device_status_provider: Callable[[], dict] | None = None,
+    prayer_service: FakePrayerService | None = None,
+    command_runner: FakeRunner | None = None,
 ) -> tuple[ControlPanelServer, TestScheduleService, FakeRouter, FakePlayer]:
     scheduler = BackgroundScheduler()
     scheduler.start(paused=True)
@@ -64,6 +93,8 @@ def _make_app(
         quran_times=("06:30",),
         config_path=str(config_path) if config_path else None,
         device_status_provider=device_status_provider,
+        prayer_service=prayer_service,
+        command_runner=command_runner,
     )
     return server, test_scheduler, router, player
 
@@ -118,7 +149,17 @@ def test_schedule_test_creates_job() -> None:
 
 def test_dashboard_shows_next_jobs_and_test_jobs() -> None:
     status_provider = lambda: {"bluetooth": "connected", "wifi": "ssid", "ip": "1.2.3.4"}
-    server, test_scheduler, _, _ = _make_app(device_status_provider=status_provider)
+    plan = DayPlan(
+        date=datetime(2025, 1, 1).date(),
+        madhab="shafi",
+        city="colombo",
+        times={"fajr": "05:05", "dhuhr": "12:10"},
+    )
+    prayer_service = FakePrayerService(plan)
+    server, test_scheduler, _, _ = _make_app(
+        device_status_provider=status_provider,
+        prayer_service=prayer_service,
+    )
     client = server.app.test_client()
 
     client.post(
@@ -137,17 +178,22 @@ def test_dashboard_shows_next_jobs_and_test_jobs() -> None:
 
     log_path = Path("logs/test.log")
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text("line1\nline2\n", encoding="utf-8")
+    log_path.write_text(
+        "2025-01-01 10:00:00,000 INFO first\n"
+        "2025-01-01 10:01:00,000 INFO second\n",
+        encoding="utf-8",
+    )
 
     resp = client.get("/")
     body = resp.get_data(as_text=True)
 
-    assert "event_fajr_20250101" in body
+    assert "fajr" in body
     assert "test_audio" in body
-    assert "line2" in body
+    assert body.find("second") < body.find("first")
     assert "connected" in body
     assert "ssid" in body
     assert "1.2.3.4" in body
+    assert "05:05" in body
 
 
 def test_controls_volume_buttons_call_router() -> None:
@@ -220,10 +266,9 @@ def test_status_shows_next_jobs_and_test_jobs() -> None:
     )
 
     resp = client.get("/status")
-    body = resp.get_data(as_text=True)
 
-    assert "event_fajr_20250101" in body
-    assert "test_audio" in body
+    assert resp.status_code == 302
+    assert "/?section=overview" in resp.headers["Location"]
 
 
 def _write_config(path: Path, audio_dir: Path) -> None:
@@ -371,6 +416,7 @@ def test_config_save_updates_file(tmp_path: Path) -> None:
             "audio_timeout": "0",
             "quran_time_0": "07:00",
             "quran_file_0": str(audio_dir / "quran.mp3"),
+            "action": "save",
         },
         follow_redirects=True,
     )
@@ -379,3 +425,47 @@ def test_config_save_updates_file(tmp_path: Path) -> None:
     assert "city: kandy" in updated
     assert "timeout_seconds: 12" in updated
     assert "playback_timeout_seconds: 0" in updated
+
+
+def test_config_save_restart_calls_runner(tmp_path: Path) -> None:
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    for name in [
+        "test.mp3",
+        "connected.mp3",
+        "adhan_fajr.mp3",
+        "adhan_dhuhr.mp3",
+        "adhan_asr.mp3",
+        "adhan_maghrib.mp3",
+        "adhan_isha.mp3",
+        "quran.mp3",
+        "sunrise.mp3",
+        "sunset.mp3",
+        "midnight.mp3",
+        "tahajjud.mp3",
+    ]:
+        (audio_dir / name).write_bytes(b"beep")
+
+    config_path = tmp_path / "config.yml"
+    _write_config(config_path, audio_dir)
+
+    runner = FakeRunner()
+    server, _, _, _ = _make_app(config_path=config_path, command_runner=runner)
+    client = server.app.test_client()
+    client.post(
+        "/login",
+        data={"username": "admin", "password": "secret"},
+        follow_redirects=True,
+    )
+
+    resp = client.post(
+        "/config",
+        data={
+            "location_city": "kandy",
+            "action": "save_restart",
+        },
+        follow_redirects=True,
+    )
+
+    assert resp.status_code == 200
+    assert runner.calls

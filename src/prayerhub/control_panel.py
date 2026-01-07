@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from pathlib import Path
+import re
 import tempfile
 from typing import Callable, Optional, Sequence
 
@@ -14,6 +15,7 @@ from werkzeug.security import check_password_hash
 
 from prayerhub.command_runner import SubprocessCommandRunner
 from prayerhub.config import ConfigError, ConfigLoader
+from prayerhub.prayer_times import DayPlan, PrayerTimeService
 from prayerhub.test_scheduler import TestScheduleService
 
 
@@ -30,152 +32,391 @@ LOGIN_TEMPLATE = """
 """
 
 
-DASHBOARD_TEMPLATE = """
+MAIN_TEMPLATE = """
 <!doctype html>
-<title>PrayerHub Dashboard</title>
-<h1>PrayerHub</h1>
-<p>Status: OK</p>
-<h2>Next Events</h2>
-<ul>
-{% for job in next_jobs %}
-  <li>{{ job.id }} at {{ job.run_date }}</li>
-{% else %}
-  <li>No scheduled events.</li>
-{% endfor %}
-</ul>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PrayerHub Control Panel</title>
+  <style>
+    :root {
+      --ink: #0f1e1c;
+      --muted: #5a6b67;
+      --accent: #0f5b4d;
+      --accent-2: #b5651d;
+      --bg: #f7f3ea;
+      --panel: #ffffff;
+      --panel-2: #f2ede3;
+      --border: #d9d2c2;
+      --shadow: 0 12px 30px rgba(10, 20, 18, 0.08);
+      --radius: 18px;
+      --font-body: "Trebuchet MS", "Gill Sans", "Verdana", sans-serif;
+      --font-display: "Palatino Linotype", "Bookman Old Style", "Garamond", serif;
+    }
 
-<h2>Pending Test Jobs</h2>
-<ul>
-{% for job in test_jobs %}
-  <li>{{ job.id }} at {{ job.run_date }}</li>
-{% else %}
-  <li>No pending tests.</li>
-{% endfor %}
-</ul>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      color: var(--ink);
+      background: radial-gradient(circle at top left, #fefbf3, #efe7d6 45%, #e8e1d1 80%);
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 28px 10px;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      margin: 0;
+      letter-spacing: 0.5px;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 0 28px 18px;
+    }
+    nav button {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--ink);
+      padding: 10px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    nav button.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 8px 16px rgba(15, 91, 77, 0.2);
+    }
+    nav button:hover {
+      transform: translateY(-1px);
+    }
+    .grid {
+      display: grid;
+      gap: 18px;
+      padding: 0 28px 32px;
+    }
+    .panel {
+      background: var(--panel);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 20px;
+      border: 1px solid var(--border);
+      animation: fadeIn 0.4s ease;
+    }
+    .panel h2 {
+      font-family: var(--font-display);
+      margin: 0 0 12px;
+      font-size: 1.3rem;
+    }
+    .muted { color: var(--muted); }
+    .pill {
+      background: var(--panel-2);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-weight: 600;
+      display: inline-block;
+    }
+    .section { display: none; }
+    .section.active { display: block; }
+    .table-scroll {
+      max-height: 260px;
+      overflow: auto;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.95rem;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #fbf8f1;
+      z-index: 1;
+    }
+    .log-panel {
+      max-height: 280px;
+      overflow: auto;
+      background: #141816;
+      color: #f6f1e3;
+      padding: 14px;
+      border-radius: 14px;
+      font-family: "Courier New", monospace;
+      font-size: 0.85rem;
+    }
+    .log-line { padding: 2px 0; }
+    .form-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .form-grid label { font-weight: 600; }
+    .form-grid input, select {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .actions button {
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      background: var(--accent);
+    }
+    .actions button.secondary {
+      background: var(--accent-2);
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #f0e6d2;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (min-width: 960px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .panel.span-2 { grid-column: span 2; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>PrayerHub</h1>
+      <div class="subtitle">Control panel · status {{ status_label }}</div>
+    </div>
+    <div class="pill">Timezone: {{ timezone }}</div>
+  </header>
 
-<h2>Recent Logs</h2>
-<pre>{{ logs }}</pre>
-<p><a href="{{ url_for('test_page') }}">Test audio</a></p>
-<p><a href="{{ url_for('controls') }}">Controls</a></p>
-<p><a href="{{ url_for('config_page') }}">Config</a></p>
+  <nav>
+    <button data-section="overview">Overview</button>
+    <button data-section="prayers">Prayer Times</button>
+    <button data-section="schedule">Upcoming Events</button>
+    <button data-section="tests">Test Audio</button>
+    <button data-section="controls">Controls</button>
+    <button data-section="config">Config</button>
+    <button data-section="logs">Logs</button>
+  </nav>
 
-<h2>Device Status</h2>
-<ul>
-  <li>Bluetooth: {{ device_status.bluetooth }}</li>
-  <li>Wi-Fi: {{ device_status.wifi }}</li>
-  <li>IP: {{ device_status.ip }}</li>
-</ul>
+  <div class="grid">
+    <section class="panel section" id="overview">
+      <h2>Device Status</h2>
+      <p><span class="badge">Bluetooth</span> {{ device_status.bluetooth }}</p>
+      <p><span class="badge">Wi-Fi</span> {{ device_status.wifi }}</p>
+      <p><span class="badge">IP</span> {{ device_status.ip }}</p>
+    </section>
+
+    <section class="panel section" id="prayers">
+      <h2>Today's Prayer Times</h2>
+      <p class="muted">{{ prayer_source }}</p>
+      {% if prayer_times %}
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Prayer</th><th>Time</th></tr>
+          </thead>
+          <tbody>
+            {% for item in prayer_times %}
+            <tr><td>{{ item.name }}</td><td>{{ item.time }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted">Prayer times unavailable.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel section span-2" id="schedule">
+      <h2>Upcoming Events</h2>
+      {% if upcoming_events %}
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr><th>Type</th><th>Name</th><th>Run Time</th></tr>
+          </thead>
+          <tbody>
+            {% for item in upcoming_events %}
+            <tr>
+              <td>{{ item.kind }}</td>
+              <td>{{ item.name }}</td>
+              <td>{{ item.run_time }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="muted">No scheduled events.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel section" id="tests">
+      <h2>Schedule Test Audio</h2>
+      <form method="post" action="{{ url_for('schedule_test') }}" class="form-grid">
+        <label>Time (HH:MM)</label>
+        <input name="time" />
+        <label>In minutes</label>
+        <input name="minutes" />
+        <div class="actions">
+          <button type="submit">Schedule</button>
+        </div>
+      </form>
+      <h3>Pending Tests</h3>
+      {% if test_jobs %}
+      <ul>
+        {% for job in test_jobs %}
+        <li>
+          {{ job.id }} at {{ job.run_date }}
+          <form method="post" action="{{ url_for('cancel_test', job_id=job.id) }}" style="display:inline">
+            <button type="submit" class="secondary">Cancel</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="muted">No pending tests.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel section" id="controls">
+      <h2>Controls</h2>
+      <div class="actions">
+        <form method="post" action="{{ url_for('volume_control') }}">
+          <input type="hidden" name="direction" value="up" />
+          <button type="submit">Volume +</button>
+        </form>
+        <form method="post" action="{{ url_for('volume_control') }}">
+          <input type="hidden" name="direction" value="down" />
+          <button type="submit">Volume -</button>
+        </form>
+      </div>
+      <form method="post" action="{{ url_for('play_now') }}" class="form-grid" style="margin-top:12px;">
+        <label>Play Now</label>
+        <select name="event">
+          {% for event in allowed_events %}
+          <option value="{{ event }}">{{ event }}</option>
+          {% endfor %}
+        </select>
+        <div class="actions">
+          <button type="submit">Play</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel section span-2" id="config">
+      <h2>Configuration</h2>
+      {% if error %}<p class="muted">{{ error }}</p>{% endif %}
+      {% if message %}<p class="muted">{{ message }}</p>{% endif %}
+      <form method="post" action="{{ url_for('config_page') }}">
+        <div class="form-grid">
+          {% for field in fields %}
+          <label>{{ field.label }}
+            <input name="{{ field.name }}" value="{{ field.value }}" />
+          </label>
+          {% endfor %}
+        </div>
+        <h3>Quran Schedule</h3>
+        <div class="form-grid">
+          {% for item in quran_fields %}
+          <label>Time <input name="{{ item.time_name }}" value="{{ item.time_value }}" /></label>
+          <label>File <input name="{{ item.file_name }}" value="{{ item.file_value }}" /></label>
+          {% endfor %}
+        </div>
+        <h3>Update Password</h3>
+        <div class="form-grid">
+          <label>New password <input type="password" name="new_password" /></label>
+          <label>Confirm <input type="password" name="new_password_confirm" /></label>
+        </div>
+        <div class="actions" style="margin-top:12px;">
+          <button type="submit" name="action" value="save">Save</button>
+          <button type="submit" name="action" value="save_restart" class="secondary">Save + Restart</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel section span-2" id="logs">
+      <h2>Logs (last 24h)</h2>
+      <div class="log-panel">
+        {% for line in log_entries %}
+        <div class="log-line">{{ line }}</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const defaultSection = "{{ active_section }}";
+    const buttons = document.querySelectorAll("nav button");
+    const sections = document.querySelectorAll(".section");
+    function activate(section) {
+      sections.forEach(el => el.classList.toggle("active", el.id === section));
+      buttons.forEach(btn => btn.classList.toggle("active", btn.dataset.section === section));
+      const url = new URL(window.location);
+      url.searchParams.set("section", section);
+      window.history.replaceState({}, "", url);
+    }
+    buttons.forEach(btn => btn.addEventListener("click", () => activate(btn.dataset.section)));
+    activate(defaultSection || "overview");
+  </script>
+</body>
+</html>
 """
-
-STATUS_TEMPLATE = """
-<!doctype html>
-<title>PrayerHub Status</title>
-<h1>PrayerHub Status</h1>
-<p>Status: OK</p>
-<h2>Next Events</h2>
-<ul>
-{% for job in next_jobs %}
-  <li>{{ job.id }} at {{ job.run_date }}</li>
-{% else %}
-  <li>No scheduled events.</li>
-{% endfor %}
-</ul>
-
-<h2>Pending Test Jobs</h2>
-<ul>
-{% for job in test_jobs %}
-  <li>{{ job.id }} at {{ job.run_date }}</li>
-{% else %}
-  <li>No pending tests.</li>
-{% endfor %}
-</ul>
-"""
-
 
 TEST_TEMPLATE = """
 <!doctype html>
-<title>Test Audio</title>
-<h1>Schedule Test Audio</h1>
-<form method="post" action="{{ url_for('schedule_test') }}">
-  <label>Time (HH:MM) <input name="time" /></label><br />
-  <label>In minutes <input name="minutes" /></label><br />
-  <button type="submit">Schedule</button>
-</form>
-
-<h2>Pending Tests</h2>
-<ul>
-{% for job in jobs %}
-  <li>
-    {{ job.id }} at {{ job.run_date }}
-    <form method="post" action="{{ url_for('cancel_test', job_id=job.id) }}" style="display:inline">
-      <button type="submit">Cancel</button>
-    </form>
-  </li>
-{% else %}
-  <li>No pending jobs.</li>
-{% endfor %}
-</ul>
+<title>PrayerHub</title>
+<body>
+  <p>Use the main dashboard.</p>
+</body>
 """
 
 CONTROLS_TEMPLATE = """
 <!doctype html>
-<title>Controls</title>
-<h1>Controls</h1>
-<form method="post" action="{{ url_for('volume_control') }}">
-  <button name="direction" value="up" type="submit">Volume Up</button>
-  <button name="direction" value="down" type="submit">Volume Down</button>
-</form>
-
-<form method="post" action="{{ url_for('play_now') }}">
-  <label>Event
-    <select name="event">
-      <option value="test_audio">Test Audio</option>
-      <option value="fajr">Fajr</option>
-      <option value="dhuhr">Dhuhr</option>
-      <option value="asr">Asr</option>
-      <option value="maghrib">Maghrib</option>
-      <option value="isha">Isha</option>
-      <option value="sunrise">Sunrise</option>
-      <option value="sunset">Sunset</option>
-      <option value="midnight">Midnight</option>
-      <option value="tahajjud">Tahajjud</option>
-      {% for time in quran_times %}
-      <option value="quran@{{ time }}">Quran {{ time }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <button type="submit">Play Now</button>
-</form>
+<title>PrayerHub</title>
+<body>
+  <p>Use the main dashboard.</p>
+</body>
 """
 
 CONFIG_TEMPLATE = """
 <!doctype html>
-<title>Config</title>
-<h1>Configuration</h1>
-{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
-{% if message %}<p style="color:green">{{ message }}</p>{% endif %}
-<form method="post">
-  <h2>General</h2>
-  {% for field in fields %}
-    <label>{{ field.label }}
-      <input name="{{ field.name }}" value="{{ field.value }}" />
-    </label><br />
-  {% endfor %}
-
-  <h2>Quran Schedule</h2>
-  {% for item in quran_fields %}
-    <label>Time <input name="{{ item.time_name }}" value="{{ item.time_value }}" /></label>
-    <label>File <input name="{{ item.file_name }}" value="{{ item.file_value }}" /></label>
-    <br />
-  {% endfor %}
-
-  <h2>Update Password</h2>
-  <label>New password <input type="password" name="new_password" /></label><br />
-  <label>Confirm <input type="password" name="new_password_confirm" /></label><br />
-
-  <button type="submit">Save</button>
-</form>
-<p>Restart the service to apply changes.</p>
+<title>PrayerHub</title>
+<body>
+  <p>Use the main dashboard.</p>
+</body>
 """
 
 
@@ -202,6 +443,8 @@ class ControlPanelServer:
     config_path: Optional[str] = None
     device_mac: Optional[str] = None
     device_status_provider: Optional[Callable[[], dict]] = None
+    prayer_service: Optional[PrayerTimeService] = None
+    command_runner: Optional[SubprocessCommandRunner] = None
     quran_times: Sequence[str] = ()
     host: str = "0.0.0.0"
     port: int = 8080
@@ -211,6 +454,8 @@ class ControlPanelServer:
     def __post_init__(self) -> None:
         self._logger = logging.getLogger(self.__class__.__name__)
         self._allowed_events = self._build_allowed_events()
+        if self.command_runner is None:
+            self.command_runner = SubprocessCommandRunner()
         self._app = self._create_app()
 
     @property
@@ -240,34 +485,46 @@ class ControlPanelServer:
         @app.route("/")
         @_login_required
         def dashboard():
-            next_jobs = _sorted_jobs(self.scheduler, limit=5)
+            section = request.args.get("section", "overview")
+            upcoming_events = _collect_upcoming_events(self.scheduler)
             test_jobs = self.test_scheduler.list_test_jobs()
-            logs = _tail_log(self.log_path, lines=20)
+            log_entries = _read_log_entries(self.log_path, hours=24, max_entries=800)
             device_status = self._device_status()
+            prayer_times, prayer_source = self._prayer_times_today()
+            fields = []
+            quran_fields = []
+            config_path = self._resolve_config_path()
+            if config_path is not None:
+                data = _load_config_data(config_path)
+                fields = _config_fields(data)
+                quran_fields = _quran_form_fields(data)
             return render_template_string(
-                DASHBOARD_TEMPLATE,
-                next_jobs=next_jobs,
+                MAIN_TEMPLATE,
+                status_label="OK",
+                timezone=self._timezone_label(),
+                upcoming_events=upcoming_events,
                 test_jobs=test_jobs,
-                logs=logs,
+                log_entries=log_entries,
                 device_status=device_status,
+                prayer_times=prayer_times,
+                prayer_source=prayer_source,
+                allowed_events=sorted(self._allowed_events),
+                fields=fields,
+                quran_fields=quran_fields,
+                error=None,
+                message=None,
+                active_section=section,
             )
 
         @app.route("/status")
         @_login_required
         def status():
-            next_jobs = _sorted_jobs(self.scheduler, limit=5)
-            test_jobs = self.test_scheduler.list_test_jobs()
-            return render_template_string(
-                STATUS_TEMPLATE,
-                next_jobs=next_jobs,
-                test_jobs=test_jobs,
-            )
+            return redirect(url_for("dashboard", section="overview"))
 
         @app.route("/test")
         @_login_required
         def test_page():
-            jobs = self.test_scheduler.list_test_jobs()
-            return render_template_string(TEST_TEMPLATE, jobs=jobs)
+            return redirect(url_for("dashboard", section="tests"))
 
         @app.post("/test/schedule")
         @_login_required
@@ -295,10 +552,7 @@ class ControlPanelServer:
         @app.route("/controls")
         @_login_required
         def controls():
-            return render_template_string(
-                CONTROLS_TEMPLATE,
-                quran_times=self.quran_times,
-            )
+            return redirect(url_for("dashboard", section="controls"))
 
         @app.route("/config", methods=["GET", "POST"])
         @_login_required
@@ -306,32 +560,64 @@ class ControlPanelServer:
             config_path = self._resolve_config_path()
             if config_path is None:
                 return render_template_string(
-                    CONFIG_TEMPLATE,
+                    MAIN_TEMPLATE,
                     fields=[],
                     quran_fields=[],
                     error="Config path is not configured.",
                     message=None,
+                    active_section="config",
+                    status_label="OK",
+                    timezone=self._timezone_label(),
+                    upcoming_events=_collect_upcoming_events(self.scheduler),
+                    test_jobs=self.test_scheduler.list_test_jobs(),
+                    log_entries=_read_log_entries(self.log_path, hours=24, max_entries=800),
+                    device_status=self._device_status(),
+                    prayer_times=[],
+                    prayer_source="Prayer times unavailable.",
+                    allowed_events=sorted(self._allowed_events),
                 )
             error = None
             message = None
             data = _load_config_data(config_path)
 
             if request.method == "POST":
+                action = request.form.get("action", "save")
                 data, error = _apply_config_form(data, request.form)
                 if error is None:
                     error = _validate_config_data(config_path, data)
                 if error is None:
-                    _save_config_data(config_path, data)
-                    message = "Saved. Restart the service to apply changes."
+                    try:
+                        _save_config_data(config_path, data)
+                        if action == "save_restart":
+                            restart_error = self._restart_service()
+                            if restart_error:
+                                error = restart_error
+                            else:
+                                message = "Saved and restarted."
+                        else:
+                            message = "Saved."
+                    except OSError as exc:
+                        error = f"Failed to save config: {exc}"
 
             fields = _config_fields(data)
             quran_fields = _quran_form_fields(data)
+            prayer_times, prayer_source = self._prayer_times_today()
             return render_template_string(
-                CONFIG_TEMPLATE,
+                MAIN_TEMPLATE,
                 fields=fields,
                 quran_fields=quran_fields,
                 error=error,
                 message=message,
+                active_section="config",
+                status_label="OK",
+                timezone=self._timezone_label(),
+                upcoming_events=_collect_upcoming_events(self.scheduler),
+                test_jobs=self.test_scheduler.list_test_jobs(),
+                log_entries=_read_log_entries(self.log_path, hours=24, max_entries=800),
+                device_status=self._device_status(),
+                prayer_times=prayer_times,
+                prayer_source=prayer_source,
+                allowed_events=sorted(self._allowed_events),
             )
 
         @app.post("/controls/volume")
@@ -393,30 +679,126 @@ class ControlPanelServer:
             return self.device_status_provider()
         return _default_device_status(self.device_mac)
 
+    def _timezone_label(self) -> str:
+        return "Local"
 
-def _sorted_jobs(scheduler: Optional[object], limit: int) -> Sequence[object]:
+    def _prayer_times_today(self) -> tuple[list[dict], str]:
+        if not self.prayer_service:
+            return [], "Prayer times unavailable."
+        today = datetime.now().date()
+        plan = self.prayer_service.get_day(today)
+        source = "Source: cache"
+        if plan is None:
+            try:
+                self.prayer_service.prefetch(days=1)
+            except Exception as exc:
+                self._logger.warning("Prayer time refresh failed: %s", exc)
+            plan = self.prayer_service.get_day(today)
+            source = "Source: API" if plan else "Source: unavailable"
+        return _plan_times(plan), source
+
+    def _restart_service(self) -> Optional[str]:
+        if not self.command_runner:
+            return "Restart unavailable."
+        result = self.command_runner.run(
+            ["sudo", "-n", "systemctl", "restart", "prayerhub.service"],
+            timeout=10,
+        )
+        if result.returncode != 0:
+            self._logger.warning("Service restart failed: %s", result.stderr.strip())
+            return "Restart failed. Check service permissions."
+        return None
+
+
+def _collect_upcoming_events(scheduler: Optional[object]) -> list[dict]:
     if scheduler is None:
         return []
     try:
         jobs = scheduler.get_jobs()
     except Exception:
         return []
-    return sorted(jobs, key=lambda job: job.next_run_time or datetime.max)[:limit]
+    events = []
+    for job in jobs:
+        run_time = getattr(job, "next_run_time", None)
+        if not run_time:
+            continue
+        kind, name = _job_kind_and_name(job.id)
+        events.append(
+            {
+                "kind": kind,
+                "name": name,
+                "run_time": run_time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+    return sorted(events, key=lambda item: item["run_time"])
 
 
-def _tail_log(log_path: Optional[str], lines: int) -> str:
+def _job_kind_and_name(job_id: str) -> tuple[str, str]:
+    if job_id == "keepalive_audio":
+        return "keepalive", "keepalive"
+    if job_id.startswith("test_audio"):
+        return "test", job_id
+    if job_id.startswith("quran_"):
+        return "quran", job_id
+    if job_id.startswith("event_"):
+        parts = job_id.split("_", 2)
+        if len(parts) >= 2:
+            return "event", parts[1]
+    if job_id == "refresh_daily":
+        return "maintenance", "refresh_daily"
+    return "job", job_id
+
+
+def _plan_times(plan: Optional[DayPlan]) -> list[dict]:
+    if not plan:
+        return []
+    order = [
+        "fajr",
+        "sunrise",
+        "dhuhr",
+        "asr",
+        "maghrib",
+        "isha",
+        "sunset",
+        "midnight",
+        "tahajjud",
+    ]
+    items = []
+    for name in order:
+        if name in plan.times:
+            items.append({"name": name, "time": plan.times[name]})
+    return items
+
+
+def _read_log_entries(
+    log_path: Optional[str], *, hours: int, max_entries: int
+) -> list[str]:
     if not log_path:
-        return "No log file configured."
+        return ["No log file configured."]
+    path = Path(log_path)
+    if not path.exists():
+        return ["Log file not found."]
     try:
-        path = Path(log_path)
-        if not path.exists():
-            return "Log file not found."
         content = path.read_text(encoding="utf-8")
     except OSError:
-        return "Log unavailable."
+        return ["Log unavailable."]
 
-    parts = content.splitlines()
-    return "\n".join(parts[-lines:])
+    now = datetime.now()
+    cutoff = now - timedelta(hours=hours)
+    timestamp = re.compile(r"^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}),")
+    entries: list[str] = []
+    for line in content.splitlines():
+        match = timestamp.match(line)
+        if match:
+            try:
+                entry_time = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                entry_time = None
+            if entry_time and entry_time < cutoff:
+                continue
+        entries.append(line)
+    entries = entries[-max_entries:]
+    return list(reversed(entries))
 
 
 def _load_config_data(path: Path) -> dict:
@@ -426,7 +808,11 @@ def _load_config_data(path: Path) -> dict:
 
 
 def _save_config_data(path: Path, data: dict) -> None:
-    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = yaml.safe_dump(data, sort_keys=False)
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(payload, encoding="utf-8")
+    tmp_path.replace(path)
 
 
 def _apply_config_form(data: dict, form) -> tuple[dict, Optional[str]]:

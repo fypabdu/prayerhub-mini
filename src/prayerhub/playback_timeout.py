@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import logging
 import math
 from pathlib import Path
+import subprocess
 from typing import Optional, Protocol
 
 from prayerhub.command_runner import CommandRunner
@@ -25,19 +26,23 @@ class FfprobeDurationProbe:
     def duration_seconds(self, path: Path) -> Optional[float]:
         if not self.runner.which("ffprobe"):
             return None
-        result = self.runner.run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-                str(path),
-            ],
-            timeout=self.timeout_seconds,
-        )
+        try:
+            result = self.runner.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(path),
+                ],
+                timeout=self.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            self._logger.warning("ffprobe timed out for %s", path)
+            return None
         if result.returncode != 0:
             self._logger.warning(
                 "ffprobe failed for %s: %s",

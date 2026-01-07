@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 from prayerhub.playback_timeout import PlaybackTimeoutPolicy
+from prayerhub.playback_timeout import FfprobeDurationProbe
 
 
 class FakeProbe:
@@ -13,6 +15,14 @@ class FakeProbe:
     def duration_seconds(self, path: Path):
         self.calls.append(path)
         return self.duration
+
+
+class TimeoutRunner:
+    def which(self, _name: str) -> str | None:
+        return "/usr/bin/ffprobe"
+
+    def run(self, _args, *, timeout):
+        raise subprocess.TimeoutExpired(cmd="ffprobe", timeout=timeout)
 
 
 def test_auto_timeout_uses_duration_with_buffer() -> None:
@@ -70,3 +80,11 @@ def test_fixed_timeout_uses_fallback() -> None:
     timeout = policy.resolve(Path("adhan.mp3"))
 
     assert timeout == 90
+
+
+def test_ffprobe_timeout_returns_none(tmp_path: Path) -> None:
+    probe = FfprobeDurationProbe(runner=TimeoutRunner())
+
+    duration = probe.duration_seconds(tmp_path / "audio.mp3")
+
+    assert duration is None

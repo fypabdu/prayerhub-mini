@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import logging
 from pathlib import Path
 from threading import Lock
-from typing import Optional
+from typing import Optional, Protocol
 
 from prayerhub.command_runner import CommandRunner
 
@@ -66,10 +66,25 @@ class AudioRouter:
         return None
 
 
+class PlaybackMonitor(Protocol):
+    def on_foreground_start(self) -> None:
+        ...
+
+    def on_foreground_end(self) -> None:
+        ...
+
+
 class AudioPlayer:
-    def __init__(self, runner: CommandRunner, router: AudioRouter) -> None:
+    def __init__(
+        self,
+        runner: CommandRunner,
+        router: AudioRouter,
+        *,
+        monitor: Optional[PlaybackMonitor] = None,
+    ) -> None:
         self._runner = runner
         self._router = router
+        self._monitor = monitor
         self._lock = Lock()
         self._logger = logging.getLogger(self.__class__.__name__)
 
@@ -91,6 +106,11 @@ class AudioPlayer:
             return False
 
         try:
+            if self._monitor is not None:
+                try:
+                    self._monitor.on_foreground_start()
+                except Exception as exc:
+                    self._logger.warning("Playback monitor start failed: %s", exc)
             self._router.set_master_volume(volume_percent)
             if self._runner.which("mpg123"):
                 command = ["mpg123", "-q", str(path)]
@@ -113,6 +133,11 @@ class AudioPlayer:
             self._logger.error("Audio playback raised: %s", exc)
             return False
         finally:
+            if self._monitor is not None:
+                try:
+                    self._monitor.on_foreground_end()
+                except Exception as exc:
+                    self._logger.warning("Playback monitor end failed: %s", exc)
             self._lock.release()
 
     def is_playing(self) -> bool:

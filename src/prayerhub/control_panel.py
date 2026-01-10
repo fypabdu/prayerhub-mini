@@ -236,6 +236,7 @@ MAIN_TEMPLATE = """
       <p><span class="badge">Bluetooth</span> {{ device_status.bluetooth }}</p>
       <p><span class="badge">Wi-Fi</span> {{ device_status.wifi }}</p>
       <p><span class="badge">IP</span> {{ device_status.ip }}</p>
+      <p><span class="badge">Background Audio</span> {{ device_status.background_keepalive }}</p>
     </section>
 
     <section class="panel section" id="prayers">
@@ -446,6 +447,7 @@ class ControlPanelServer:
     prayer_service: Optional[PrayerTimeService] = None
     command_runner: Optional[SubprocessCommandRunner] = None
     quran_times: Sequence[str] = ()
+    keepalive_service: Optional[object] = None
     host: str = "0.0.0.0"
     port: int = 8080
     volume_percent: int = 50
@@ -676,8 +678,16 @@ class ControlPanelServer:
 
     def _device_status(self) -> dict:
         if self.device_status_provider:
-            return self.device_status_provider()
-        return _default_device_status(self.device_mac)
+            status = self.device_status_provider()
+        else:
+            status = _default_device_status(self.device_mac)
+        if self.keepalive_service is not None:
+            status["background_keepalive"] = (
+                "running" if self.keepalive_service.is_running() else "stopped"
+            )
+        else:
+            status.setdefault("background_keepalive", "disabled")
+        return status
 
     def _timezone_label(self) -> str:
         return "Local"
@@ -734,8 +744,6 @@ def _collect_upcoming_events(scheduler: Optional[object]) -> list[dict]:
 
 
 def _job_kind_and_name(job_id: str) -> tuple[str, str]:
-    if job_id == "keepalive_audio":
-        return "keepalive", "keepalive"
     if job_id.startswith("test_audio"):
         return "test", job_id
     if job_id.startswith("quran_"):
@@ -906,6 +914,36 @@ def _config_field_definitions() -> list[dict]:
         {"label": "Test Audio", "name": "audio_test", "path": ["audio", "test_audio"], "type": "text"},
         {"label": "Connected Tone", "name": "audio_connected", "path": ["audio", "connected_tone"], "type": "text"},
         {
+            "label": "Background Keepalive Enabled (true/false)",
+            "name": "audio_bg_enabled",
+            "path": ["audio", "background_keepalive_enabled"],
+            "type": "bool",
+        },
+        {
+            "label": "Background Keepalive Audio File",
+            "name": "audio_bg_path",
+            "path": ["audio", "background_keepalive_path"],
+            "type": "text",
+        },
+        {
+            "label": "Background Keepalive Volume",
+            "name": "audio_bg_volume",
+            "path": ["audio", "background_keepalive_volume_percent"],
+            "type": "int",
+        },
+        {
+            "label": "Background Keepalive Loop (true/false)",
+            "name": "audio_bg_loop",
+            "path": ["audio", "background_keepalive_loop"],
+            "type": "bool",
+        },
+        {
+            "label": "Background Keepalive Nice (int, optional)",
+            "name": "audio_bg_nice",
+            "path": ["audio", "background_keepalive_nice"],
+            "type": "int",
+        },
+        {
             "label": "Playback Timeout (sec)",
             "name": "audio_timeout",
             "path": ["audio", "playback_timeout_seconds"],
@@ -954,20 +992,6 @@ def _config_field_definitions() -> list[dict]:
             "name": "bt_default_sink",
             "path": ["bluetooth", "ensure_default_sink"],
             "type": "bool",
-        },
-        {"label": "Keepalive Enabled (true/false)", "name": "ka_enabled", "path": ["keepalive", "enabled"], "type": "bool"},
-        {
-            "label": "Keepalive Interval (min)",
-            "name": "ka_interval",
-            "path": ["keepalive", "interval_minutes"],
-            "type": "int",
-        },
-        {"label": "Keepalive Audio File", "name": "ka_audio", "path": ["keepalive", "audio_file"], "type": "text"},
-        {
-            "label": "Keepalive Volume",
-            "name": "ka_volume",
-            "path": ["keepalive", "volume_percent"],
-            "type": "int",
         },
         {"label": "Control Panel Enabled (true/false)", "name": "cp_enabled", "path": ["control_panel", "enabled"], "type": "bool"},
         {"label": "Control Panel Host", "name": "cp_host", "path": ["control_panel", "host"], "type": "text"},

@@ -42,6 +42,11 @@ class AudioVolumes:
 class AudioConfig:
     test_audio: str
     connected_tone: str
+    background_keepalive_enabled: bool
+    background_keepalive_path: str
+    background_keepalive_volume_percent: int
+    background_keepalive_loop: bool
+    background_keepalive_nice: Optional[int]
     adhan: "AdhanAudio"
     quran_schedule: tuple["QuranScheduleItem", ...]
     notifications: "NotificationAudio"
@@ -55,14 +60,6 @@ class AudioConfig:
 class BluetoothConfig:
     device_mac: str
     ensure_default_sink: bool
-
-
-@dataclass(frozen=True)
-class KeepAliveConfig:
-    enabled: bool
-    interval_minutes: int
-    audio_file: str
-    volume_percent: int
 
 
 @dataclass(frozen=True)
@@ -120,7 +117,6 @@ class AppConfig:
     api: ApiConfig
     audio: AudioConfig
     bluetooth: BluetoothConfig
-    keepalive: KeepAliveConfig
     control_panel: ControlPanelConfig
     logging: LoggingConfig
 
@@ -200,7 +196,6 @@ class ConfigLoader:
             audio_data = data["audio"]
             bluetooth_data = data["bluetooth"]
             control_panel_data = data["control_panel"]
-            keepalive_data = data.get("keepalive", {})
         except KeyError as exc:
             raise ConfigError(f"Missing config section: {exc.args[0]}") from exc
 
@@ -246,6 +241,26 @@ class ConfigLoader:
         audio = AudioConfig(
             test_audio=audio_data["test_audio"],
             connected_tone=audio_data["connected_tone"],
+            background_keepalive_enabled=bool(
+                audio_data.get("background_keepalive_enabled", False)
+            ),
+            background_keepalive_path=str(
+                audio_data.get(
+                    "background_keepalive_path",
+                    audio_data["test_audio"],
+                )
+            ),
+            background_keepalive_volume_percent=int(
+                audio_data.get("background_keepalive_volume_percent", 1)
+            ),
+            background_keepalive_loop=bool(
+                audio_data.get("background_keepalive_loop", True)
+            ),
+            background_keepalive_nice=(
+                int(audio_data["background_keepalive_nice"])
+                if audio_data.get("background_keepalive_nice") is not None
+                else None
+            ),
             adhan=adhan,
             quran_schedule=quran_schedule,
             notifications=notifications,
@@ -261,12 +276,6 @@ class ConfigLoader:
         bluetooth = BluetoothConfig(
             device_mac=bluetooth_data["device_mac"],
             ensure_default_sink=bool(bluetooth_data["ensure_default_sink"]),
-        )
-        keepalive = KeepAliveConfig(
-            enabled=bool(keepalive_data.get("enabled", False)),
-            interval_minutes=int(keepalive_data.get("interval_minutes", 5)),
-            audio_file=str(keepalive_data.get("audio_file", audio_data["test_audio"])),
-            volume_percent=int(keepalive_data.get("volume_percent", 1)),
         )
         auth_data = control_panel_data["auth"]
         test_scheduler_data = control_panel_data["test_scheduler"]
@@ -292,7 +301,6 @@ class ConfigLoader:
             api=api,
             audio=audio,
             bluetooth=bluetooth,
-            keepalive=keepalive,
             control_panel=control_panel,
             logging=logging_config,
         )
@@ -301,7 +309,7 @@ class ConfigLoader:
         self._validate_audio_paths(config.audio)
         self._validate_volumes(config.audio.volumes)
         self._validate_audio_timeout(config.audio)
-        self._validate_keepalive(config.keepalive)
+        self._validate_background_keepalive(config.audio)
         self._validate_control_panel(config.control_panel)
 
     def _validate_audio_paths(self, audio: AudioConfig) -> None:
@@ -351,14 +359,17 @@ class ConfigLoader:
         if not control_panel.auth.password_hash:
             raise ConfigError("Control panel password_hash is required")
 
-    def _validate_keepalive(self, keepalive: KeepAliveConfig) -> None:
-        if keepalive.interval_minutes <= 0:
-            raise ConfigError("keepalive.interval_minutes must be greater than zero")
-        if not 0 <= keepalive.volume_percent <= 100:
-            raise ConfigError("keepalive.volume_percent out of range")
-        if keepalive.enabled:
-            path = Path(keepalive.audio_file)
+    def _validate_background_keepalive(self, audio: AudioConfig) -> None:
+        if not 0 <= audio.background_keepalive_volume_percent <= 100:
+            raise ConfigError("background_keepalive_volume_percent out of range")
+        if audio.background_keepalive_enabled:
+            path = Path(audio.background_keepalive_path)
             if not path.is_absolute():
                 path = Path.cwd() / path
             if not path.exists():
-                raise ConfigError(f"Keepalive audio file does not exist: {path}")
+                raise ConfigError(f"Background keepalive audio file does not exist: {path}")
+        if audio.background_keepalive_nice is not None:
+            try:
+                int(audio.background_keepalive_nice)
+            except (TypeError, ValueError) as exc:
+                raise ConfigError("background_keepalive_nice must be an integer") from exc

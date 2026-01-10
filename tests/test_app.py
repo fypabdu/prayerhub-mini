@@ -28,6 +28,11 @@ api:
 audio:
   test_audio: "{test_audio_path}"
   connected_tone: "data/audio/connected.mp3"
+  background_keepalive_enabled: false
+  background_keepalive_path: "data/audio/keepalive_low_freq.mp3"
+  background_keepalive_volume_percent: 1
+  background_keepalive_loop: true
+  background_keepalive_nice: 10
   playback_timeout_seconds: 300
   playback_timeout_strategy: "fixed"
   playback_timeout_buffer_seconds: 5
@@ -57,12 +62,6 @@ bluetooth:
   device_mac: "AA:BB:CC:DD:EE:FF"
   ensure_default_sink: true
 
-keepalive:
-  enabled: false
-  interval_minutes: 5
-  audio_file: "data/audio/test_beep.mp3"
-  volume_percent: 1
-
 control_panel:
   enabled: false
   host: "0.0.0.0"
@@ -84,6 +83,7 @@ def _seed_audio_files(root: Path) -> None:
     audio_dir.mkdir(parents=True, exist_ok=True)
     for name in [
         "connected.mp3",
+        "keepalive_low_freq.mp3",
         "adhan_fajr.mp3",
         "adhan_dhuhr.mp3",
         "adhan_asr.mp3",

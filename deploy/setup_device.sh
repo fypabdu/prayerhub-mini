@@ -187,6 +187,7 @@ print_audio_files
 
 test_audio="$(prompt_file "Test audio" "2sec-audio.mp3")"
 connected_audio="$(prompt_file "Connected tone" "$test_audio")"
+keepalive_audio="$(prompt_file "Background keepalive audio" "keepalive_low_freq.mp3")"
 
 adhan_fajr="$(prompt_file "Adhan fajr" "adhan_fajr.mp3")"
 adhan_dhuhr="$(prompt_file "Adhan dhuhr" "$adhan_fajr")"
@@ -205,6 +206,7 @@ quran_file="$(prompt_file "Quran audio" "$adhan_fajr")"
 echo "Step 5/6: Copy audio files into ${audio_dir}"
 cp "${audio_source_dir}/${test_audio}" "${audio_dir}/${test_audio}"
 cp "${audio_source_dir}/${connected_audio}" "${audio_dir}/${connected_audio}"
+cp "${audio_source_dir}/${keepalive_audio}" "${audio_dir}/${keepalive_audio}"
 cp "${audio_source_dir}/${adhan_fajr}" "${audio_dir}/${adhan_fajr}"
 cp "${audio_source_dir}/${adhan_dhuhr}" "${audio_dir}/${adhan_dhuhr}"
 cp "${audio_source_dir}/${adhan_asr}" "${audio_dir}/${adhan_asr}"
@@ -232,6 +234,7 @@ PRAYERHUB_USERNAME="$username" \
 PRAYERHUB_PASSWORD_HASH="$hash" \
 PRAYERHUB_TEST_AUDIO="$test_audio" \
 PRAYERHUB_CONNECTED_AUDIO="$connected_audio" \
+PRAYERHUB_KEEPALIVE_AUDIO="$keepalive_audio" \
 PRAYERHUB_ADHAN_FAJR="$adhan_fajr" \
 PRAYERHUB_ADHAN_DHUHR="$adhan_dhuhr" \
 PRAYERHUB_ADHAN_ASR="$adhan_asr" \
@@ -258,6 +261,11 @@ def set_path(value):
 data.setdefault("audio", {})
 data["audio"]["test_audio"] = set_path(os.environ["PRAYERHUB_TEST_AUDIO"])
 data["audio"]["connected_tone"] = set_path(os.environ["PRAYERHUB_CONNECTED_AUDIO"])
+data["audio"]["background_keepalive_enabled"] = True
+data["audio"]["background_keepalive_path"] = set_path(os.environ["PRAYERHUB_KEEPALIVE_AUDIO"])
+data["audio"]["background_keepalive_volume_percent"] = 1
+data["audio"]["background_keepalive_loop"] = True
+data["audio"]["background_keepalive_nice"] = 10
 data["audio"].setdefault("playback_timeout_seconds", 300)
 data["audio"]["playback_timeout_strategy"] = "auto"
 data["audio"].setdefault("playback_timeout_buffer_seconds", 5)

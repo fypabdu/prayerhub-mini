@@ -26,6 +26,18 @@ class FakeRunner:
         return FakeResult()
 
 
+@dataclass
+class FakeMonitor:
+    started: int = 0
+    ended: int = 0
+
+    def on_foreground_start(self) -> None:
+        self.started += 1
+
+    def on_foreground_end(self) -> None:
+        self.ended += 1
+
+
 def test_audio_router_selects_wpctl_then_pactl() -> None:
     runner = FakeRunner({"wpctl", "pactl"})
     router = AudioRouter(runner)
@@ -84,3 +96,17 @@ def test_audio_player_errors_when_no_backend(tmp_path: Path, caplog) -> None:
     with caplog.at_level("ERROR"):
         assert not player.play(audio_file, volume_percent=50, timeout_seconds=1)
     assert "mpg123" in caplog.text and "ffplay" in caplog.text
+
+
+def test_audio_player_notifies_monitor(tmp_path: Path) -> None:
+    audio_file = tmp_path / "test.mp3"
+    audio_file.write_bytes(b"beep")
+
+    runner = FakeRunner({"mpg123"})
+    router = AudioRouter(runner)
+    monitor = FakeMonitor()
+    player = AudioPlayer(runner, router, monitor=monitor)
+
+    assert player.play(audio_file, volume_percent=50, timeout_seconds=1)
+    assert monitor.started == 1
+    assert monitor.ended == 1

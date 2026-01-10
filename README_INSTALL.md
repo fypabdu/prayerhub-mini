@@ -46,6 +46,9 @@ Bundle includes placeholder files in `/opt/prayerhub/data/audio/`. Replace them 
 sudo cp /path/to/your/audio/*.mp3 /opt/prayerhub/data/audio/
 ```
 
+For the Bluetooth keep-alive, set `audio.background_keepalive_path` in
+`/etc/prayerhub/config.yml` to your low-frequency keepalive file.
+
 ## Start service
 
 ```bash

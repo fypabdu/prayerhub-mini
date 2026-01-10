@@ -287,6 +287,11 @@ api:
 audio:
   test_audio: "{audio_dir / 'test.mp3'}"
   connected_tone: "{audio_dir / 'connected.mp3'}"
+  background_keepalive_enabled: false
+  background_keepalive_path: "{audio_dir / 'keepalive.mp3'}"
+  background_keepalive_volume_percent: 1
+  background_keepalive_loop: true
+  background_keepalive_nice: 10
   playback_timeout_seconds: 300
   playback_timeout_strategy: "fixed"
   playback_timeout_buffer_seconds: 5
@@ -316,12 +321,6 @@ bluetooth:
   device_mac: "AA:BB:CC:DD:EE:FF"
   ensure_default_sink: true
 
-keepalive:
-  enabled: false
-  interval_minutes: 5
-  audio_file: "{audio_dir / 'test.mp3'}"
-  volume_percent: 1
-
 control_panel:
   enabled: true
   host: "0.0.0.0"
@@ -345,6 +344,7 @@ def test_config_page_loads_values(tmp_path: Path) -> None:
     for name in [
         "test.mp3",
         "connected.mp3",
+        "keepalive.mp3",
         "adhan_fajr.mp3",
         "adhan_dhuhr.mp3",
         "adhan_asr.mp3",
@@ -384,6 +384,7 @@ def test_config_save_updates_file(tmp_path: Path) -> None:
     for name in [
         "test.mp3",
         "connected.mp3",
+        "keepalive.mp3",
         "adhan_fajr.mp3",
         "adhan_dhuhr.mp3",
         "adhan_asr.mp3",
@@ -433,6 +434,7 @@ def test_config_save_restart_calls_runner(tmp_path: Path) -> None:
     for name in [
         "test.mp3",
         "connected.mp3",
+        "keepalive.mp3",
         "adhan_fajr.mp3",
         "adhan_dhuhr.mp3",
         "adhan_asr.mp3",

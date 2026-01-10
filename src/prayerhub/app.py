@@ -61,13 +61,23 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         from prayerhub.audio import AudioPlayer, AudioRouter
         from prayerhub.bluetooth import BluetoothManager
         from prayerhub.command_runner import SubprocessCommandRunner
-        from prayerhub.keepalive import KeepAliveService
+        from prayerhub.background_keepalive import BackgroundKeepAliveService
         from prayerhub.playback import PlaybackHandler
         from prayerhub.playback_timeout import FfprobeDurationProbe, PlaybackTimeoutPolicy
 
         runner = SubprocessCommandRunner()
         router = AudioRouter(runner)
-        player = AudioPlayer(runner, router)
+        keepalive_service = None
+        if config.audio.background_keepalive_enabled:
+            keepalive_service = BackgroundKeepAliveService(
+                runner=runner,
+                bluetooth=None,
+                audio_file=config.audio.background_keepalive_path,
+                volume_percent=config.audio.background_keepalive_volume_percent,
+                loop=config.audio.background_keepalive_loop,
+                nice_level=config.audio.background_keepalive_nice,
+            )
+        player = AudioPlayer(runner, router, monitor=keepalive_service)
         duration_probe = FfprobeDurationProbe(runner)
         timeout_policy = PlaybackTimeoutPolicy(
             strategy=config.audio.playback_timeout_strategy,
@@ -93,18 +103,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         audio_router = router
         play_handler = playback.handle_event
 
-        if config.keepalive.enabled:
-            keepalive_service = KeepAliveService(
-                scheduler=scheduler,
-                player=player,
-                bluetooth=bluetooth,
-                audio_file=config.keepalive.audio_file,
-                volume_percent=config.keepalive.volume_percent,
-                interval_minutes=config.keepalive.interval_minutes,
-                timeout_policy=timeout_policy
-                if config.audio.playback_timeout_strategy == "auto"
-                else None,
-            )
+        if keepalive_service is not None:
+            keepalive_service.bluetooth = bluetooth
 
         def handle(plan, name):
             logger.info("Executing scheduled event %s for %s", name, plan.date)
@@ -144,15 +144,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         quran_times=quran_times,
     )
     if keepalive_service is not None:
-        keepalive_service.schedule()
+        keepalive_service.resume_if_idle()
         logger.info(
-            "Keepalive enabled: interval=%s min file=%s volume=%s",
-            config.keepalive.interval_minutes,
-            config.keepalive.audio_file,
-            config.keepalive.volume_percent,
+            "Background keepalive enabled: file=%s volume=%s loop=%s",
+            config.audio.background_keepalive_path,
+            config.audio.background_keepalive_volume_percent,
+            config.audio.background_keepalive_loop,
         )
     else:
-        logger.info("Keepalive disabled")
+        logger.info("Background keepalive disabled")
 
     if config.control_panel.enabled:
         from prayerhub.control_panel import ControlPanelServer
@@ -174,6 +174,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             device_mac=config.bluetooth.device_mac,
             prayer_service=prayer_service,
             command_runner=runner,
+            keepalive_service=keepalive_service,
         )
         scheduler.start()
         logger.info("Starting control panel on %s:%s", server.host, server.port)
@@ -201,6 +202,11 @@ def _config_summary(config) -> dict:
         "audio": {
             "test_audio": config.audio.test_audio,
             "connected_tone": config.audio.connected_tone,
+            "background_keepalive_enabled": config.audio.background_keepalive_enabled,
+            "background_keepalive_path": config.audio.background_keepalive_path,
+            "background_keepalive_volume_percent": config.audio.background_keepalive_volume_percent,
+            "background_keepalive_loop": config.audio.background_keepalive_loop,
+            "background_keepalive_nice": config.audio.background_keepalive_nice,
             "adhan": {
                 "fajr": config.audio.adhan.fajr,
                 "dhuhr": config.audio.adhan.dhuhr,
@@ -230,12 +236,6 @@ def _config_summary(config) -> dict:
         "bluetooth": {
             "device_mac": config.bluetooth.device_mac,
             "ensure_default_sink": config.bluetooth.ensure_default_sink,
-        },
-        "keepalive": {
-            "enabled": config.keepalive.enabled,
-            "interval_minutes": config.keepalive.interval_minutes,
-            "audio_file": config.keepalive.audio_file,
-            "volume_percent": config.keepalive.volume_percent,
         },
         "control_panel": {
             "enabled": config.control_panel.enabled,

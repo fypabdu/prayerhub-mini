@@ -17,6 +17,7 @@ def _seed_audio_files(root: Path) -> None:
     audio_dir.mkdir(parents=True, exist_ok=True)
     for name in [
         "connected.mp3",
+        "keepalive_low_freq.mp3",
         "adhan_fajr.mp3",
         "adhan_dhuhr.mp3",
         "adhan_asr.mp3",
@@ -47,6 +48,11 @@ api:
 audio:
   test_audio: "{test_audio_path}"
   connected_tone: "data/audio/connected.mp3"
+  background_keepalive_enabled: false
+  background_keepalive_path: "data/audio/keepalive_low_freq.mp3"
+  background_keepalive_volume_percent: 1
+  background_keepalive_loop: true
+  background_keepalive_nice: 10
   playback_timeout_seconds: 300
   playback_timeout_strategy: "fixed"
   playback_timeout_buffer_seconds: 5
@@ -75,12 +81,6 @@ audio:
 bluetooth:
   device_mac: "AA:BB:CC:DD:EE:FF"
   ensure_default_sink: true
-
-keepalive:
-  enabled: false
-  interval_minutes: 5
-  audio_file: "data/audio/test_beep.mp3"
-  volume_percent: 1
 
 control_panel:
   enabled: true
@@ -153,6 +153,29 @@ def test_missing_test_audio_path_fails_validation(tmp_path: Path, monkeypatch: p
     monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     _seed_audio_files(tmp_path)
+
+    with pytest.raises(ConfigError):
+        ConfigLoader().load()
+
+
+def test_missing_background_keepalive_path_fails_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    test_audio = tmp_path / "test_beep.mp3"
+    test_audio.write_bytes(b"beep")
+    _seed_audio_files(tmp_path)
+
+    config_text = _base_config("test_beep.mp3").replace(
+        "background_keepalive_enabled: false",
+        "background_keepalive_enabled: true",
+    ).replace(
+        'background_keepalive_path: "data/audio/keepalive_low_freq.mp3"',
+        'background_keepalive_path: "missing_keepalive.mp3"',
+    )
+    _write_yaml(tmp_path / "config.yml", config_text)
+
+    monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ConfigError):
         ConfigLoader().load()

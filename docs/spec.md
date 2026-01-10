@@ -1345,6 +1345,47 @@ Rules for every ticket:
 **Definition of Done**
 - Idle device stays connected without audible playback; no interference with real audio.
 
+---
+
+### T37b - Continuous background keep-alive audio (replace T37)
+**Estimate:** 55 min  
+**Depends on:** T5, T7  
+**Context7 topics:**  
+- APScheduler interval jobs  
+- Audio playback + subprocess priority/niceness  
+
+**Goal**
+Replace the interval-based keep-alive with a continuous, lowest-priority background audio that runs when idle and yields to any foreground audio (adhan/quran/notification/test).
+
+**TDD**
+- background keep-alive starts when player becomes idle
+- background keep-alive stops/ducks when any foreground audio starts
+- background keep-alive resumes when foreground audio ends
+- keep-alive never blocks or fails foreground playback
+- config validation fails when background keep-alive is enabled but file missing
+
+**Steps**
+1. Remove the interval keep-alive job from T37 (or gate it off).
+2. Add config for background keep-alive audio:
+   - `audio.background_keepalive_enabled` (bool)
+   - `audio.background_keepalive_path`
+   - `audio.background_keepalive_volume_percent`
+   - `audio.background_keepalive_loop` (bool)
+   - `audio.background_keepalive_nice` (int, optional)
+3. Add a `BackgroundKeepAliveService` that:
+   - keeps a low-priority playback running when idle
+   - stops/pauses on foreground playback start
+   - resumes on foreground playback end
+4. Update AudioPlayer to expose “foreground active” signals/hooks.
+5. Add control panel status showing background keep-alive state.
+6. Update setup script and config example to include the new audio file.
+7. Ensure bundle includes the background keep-alive audio file.
+
+**Definition of Done**
+- Background keep-alive runs when idle and yields to any foreground audio.
+- Control panel shows its status.
+- Setup script and bundle include the background keep-alive audio.
+
 ## 11) Open questions (only if you want to tighten the spec)
 1. Do you want the device to run as a Wi-Fi access point (AP mode), or will it always join an existing Wi-Fi network?
 2. Do you want the control panel to show a “simulated clock” mode (speed up time), or is scheduling test beeps enough?

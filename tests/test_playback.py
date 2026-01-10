@@ -44,6 +44,11 @@ def _audio_config() -> AudioConfig:
     return AudioConfig(
         test_audio="data/audio/test_beep.mp3",
         connected_tone="data/audio/connected.mp3",
+        background_keepalive_enabled=False,
+        background_keepalive_path="data/audio/keepalive_low_freq.mp3",
+        background_keepalive_volume_percent=1,
+        background_keepalive_loop=True,
+        background_keepalive_nice=10,
         adhan=AdhanAudio(
             fajr="data/audio/adhan_fajr.mp3",
             dhuhr="data/audio/adhan_dhuhr.mp3",

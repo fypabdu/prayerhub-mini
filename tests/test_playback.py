@@ -49,6 +49,10 @@ def _audio_config() -> AudioConfig:
         background_keepalive_volume_percent=1,
         background_keepalive_loop=True,
         background_keepalive_nice=10,
+        background_keepalive_volume_cycle_enabled=False,
+        background_keepalive_volume_cycle_min_percent=1,
+        background_keepalive_volume_cycle_max_percent=10,
+        background_keepalive_volume_cycle_step_seconds=1.0,
         adhan=AdhanAudio(
             fajr="data/audio/adhan_fajr.mp3",
             dhuhr="data/audio/adhan_dhuhr.mp3",

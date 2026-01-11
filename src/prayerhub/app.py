@@ -76,6 +76,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 volume_percent=config.audio.background_keepalive_volume_percent,
                 loop=config.audio.background_keepalive_loop,
                 nice_level=config.audio.background_keepalive_nice,
+                volume_cycle_enabled=config.audio.background_keepalive_volume_cycle_enabled,
+                volume_cycle_min_percent=config.audio.background_keepalive_volume_cycle_min_percent,
+                volume_cycle_max_percent=config.audio.background_keepalive_volume_cycle_max_percent,
+                volume_cycle_step_seconds=config.audio.background_keepalive_volume_cycle_step_seconds,
             )
         player = AudioPlayer(runner, router, monitor=keepalive_service)
         duration_probe = FfprobeDurationProbe(runner)
@@ -207,6 +211,10 @@ def _config_summary(config) -> dict:
             "background_keepalive_volume_percent": config.audio.background_keepalive_volume_percent,
             "background_keepalive_loop": config.audio.background_keepalive_loop,
             "background_keepalive_nice": config.audio.background_keepalive_nice,
+            "background_keepalive_volume_cycle_enabled": config.audio.background_keepalive_volume_cycle_enabled,
+            "background_keepalive_volume_cycle_min_percent": config.audio.background_keepalive_volume_cycle_min_percent,
+            "background_keepalive_volume_cycle_max_percent": config.audio.background_keepalive_volume_cycle_max_percent,
+            "background_keepalive_volume_cycle_step_seconds": config.audio.background_keepalive_volume_cycle_step_seconds,
             "adhan": {
                 "fajr": config.audio.adhan.fajr,
                 "dhuhr": config.audio.adhan.dhuhr,

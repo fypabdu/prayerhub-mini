@@ -944,6 +944,30 @@ def _config_field_definitions() -> list[dict]:
             "type": "int",
         },
         {
+            "label": "Background Keepalive Volume Cycle Enabled (true/false)",
+            "name": "audio_bg_cycle_enabled",
+            "path": ["audio", "background_keepalive_volume_cycle_enabled"],
+            "type": "bool",
+        },
+        {
+            "label": "Background Keepalive Volume Cycle Min",
+            "name": "audio_bg_cycle_min",
+            "path": ["audio", "background_keepalive_volume_cycle_min_percent"],
+            "type": "int",
+        },
+        {
+            "label": "Background Keepalive Volume Cycle Max",
+            "name": "audio_bg_cycle_max",
+            "path": ["audio", "background_keepalive_volume_cycle_max_percent"],
+            "type": "int",
+        },
+        {
+            "label": "Background Keepalive Volume Cycle Step (sec)",
+            "name": "audio_bg_cycle_step",
+            "path": ["audio", "background_keepalive_volume_cycle_step_seconds"],
+            "type": "int",
+        },
+        {
             "label": "Playback Timeout (sec)",
             "name": "audio_timeout",
             "path": ["audio", "playback_timeout_seconds"],

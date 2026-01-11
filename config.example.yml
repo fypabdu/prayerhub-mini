@@ -17,6 +17,10 @@ audio:
   background_keepalive_volume_percent: 1
   background_keepalive_loop: true
   background_keepalive_nice: 10
+  background_keepalive_volume_cycle_enabled: false
+  background_keepalive_volume_cycle_min_percent: 1
+  background_keepalive_volume_cycle_max_percent: 10
+  background_keepalive_volume_cycle_step_seconds: 1
   playback_timeout_seconds: 300 # Set to 0 to disable timeout (not recommended).
   playback_timeout_strategy: "auto" # fixed or auto (advanced users only).
   playback_timeout_buffer_seconds: 5 # Extra seconds added when using auto.

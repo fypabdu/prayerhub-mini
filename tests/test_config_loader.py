@@ -53,6 +53,10 @@ audio:
   background_keepalive_volume_percent: 1
   background_keepalive_loop: true
   background_keepalive_nice: 10
+  background_keepalive_volume_cycle_enabled: false
+  background_keepalive_volume_cycle_min_percent: 1
+  background_keepalive_volume_cycle_max_percent: 10
+  background_keepalive_volume_cycle_step_seconds: 1
   playback_timeout_seconds: 300
   playback_timeout_strategy: "fixed"
   playback_timeout_buffer_seconds: 5
@@ -171,6 +175,32 @@ def test_missing_background_keepalive_path_fails_validation(
     ).replace(
         'background_keepalive_path: "data/audio/keepalive_low_freq.mp3"',
         'background_keepalive_path: "missing_keepalive.mp3"',
+    )
+    _write_yaml(tmp_path / "config.yml", config_text)
+
+    monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ConfigError):
+        ConfigLoader().load()
+
+
+def test_invalid_background_keepalive_cycle_range_fails_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    test_audio = tmp_path / "test_beep.mp3"
+    test_audio.write_bytes(b"beep")
+    _seed_audio_files(tmp_path)
+
+    config_text = _base_config("test_beep.mp3").replace(
+        "background_keepalive_volume_cycle_enabled: false",
+        "background_keepalive_volume_cycle_enabled: true",
+    ).replace(
+        "background_keepalive_volume_cycle_min_percent: 1",
+        "background_keepalive_volume_cycle_min_percent: 20",
+    ).replace(
+        "background_keepalive_volume_cycle_max_percent: 10",
+        "background_keepalive_volume_cycle_max_percent: 5",
     )
     _write_yaml(tmp_path / "config.yml", config_text)
 

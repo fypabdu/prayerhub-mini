@@ -292,6 +292,10 @@ audio:
   background_keepalive_volume_percent: 1
   background_keepalive_loop: true
   background_keepalive_nice: 10
+  background_keepalive_volume_cycle_enabled: false
+  background_keepalive_volume_cycle_min_percent: 1
+  background_keepalive_volume_cycle_max_percent: 10
+  background_keepalive_volume_cycle_step_seconds: 1
   playback_timeout_seconds: 300
   playback_timeout_strategy: "fixed"
   playback_timeout_buffer_seconds: 5

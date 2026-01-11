@@ -47,6 +47,10 @@ class AudioConfig:
     background_keepalive_volume_percent: int
     background_keepalive_loop: bool
     background_keepalive_nice: Optional[int]
+    background_keepalive_volume_cycle_enabled: bool
+    background_keepalive_volume_cycle_min_percent: int
+    background_keepalive_volume_cycle_max_percent: int
+    background_keepalive_volume_cycle_step_seconds: float
     adhan: "AdhanAudio"
     quran_schedule: tuple["QuranScheduleItem", ...]
     notifications: "NotificationAudio"
@@ -261,6 +265,18 @@ class ConfigLoader:
                 if audio_data.get("background_keepalive_nice") is not None
                 else None
             ),
+            background_keepalive_volume_cycle_enabled=bool(
+                audio_data.get("background_keepalive_volume_cycle_enabled", False)
+            ),
+            background_keepalive_volume_cycle_min_percent=int(
+                audio_data.get("background_keepalive_volume_cycle_min_percent", 1)
+            ),
+            background_keepalive_volume_cycle_max_percent=int(
+                audio_data.get("background_keepalive_volume_cycle_max_percent", 10)
+            ),
+            background_keepalive_volume_cycle_step_seconds=float(
+                audio_data.get("background_keepalive_volume_cycle_step_seconds", 1.0)
+            ),
             adhan=adhan,
             quran_schedule=quran_schedule,
             notifications=notifications,
@@ -373,3 +389,12 @@ class ConfigLoader:
                 int(audio.background_keepalive_nice)
             except (TypeError, ValueError) as exc:
                 raise ConfigError("background_keepalive_nice must be an integer") from exc
+        if not 0 <= audio.background_keepalive_volume_cycle_min_percent <= 100:
+            raise ConfigError("background_keepalive_volume_cycle_min_percent out of range")
+        if not 0 <= audio.background_keepalive_volume_cycle_max_percent <= 100:
+            raise ConfigError("background_keepalive_volume_cycle_max_percent out of range")
+        if audio.background_keepalive_volume_cycle_min_percent > audio.background_keepalive_volume_cycle_max_percent:
+            raise ConfigError("background_keepalive_volume_cycle_min_percent must be <= max")
+        if audio.background_keepalive_volume_cycle_enabled:
+            if audio.background_keepalive_volume_cycle_step_seconds <= 0:
+                raise ConfigError("background_keepalive_volume_cycle_step_seconds must be > 0")

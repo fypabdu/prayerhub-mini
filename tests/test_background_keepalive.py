@@ -62,6 +62,7 @@ def test_background_keepalive_starts_when_idle(tmp_path: Path) -> None:
 
     assert runner.spawn_calls
     assert service.is_running() is True
+    assert service.is_modulating() is False
     assert bluetooth.calls == 1
 
 
@@ -103,6 +104,7 @@ def test_background_keepalive_pause_stops_process(tmp_path: Path) -> None:
     service.pause_for_foreground()
 
     assert service.is_running() is False
+    assert service.is_modulating() is False
 
 
 def test_background_keepalive_resume_skips_when_running(tmp_path: Path) -> None:
@@ -123,3 +125,36 @@ def test_background_keepalive_resume_skips_when_running(tmp_path: Path) -> None:
     service.resume_if_idle()
 
     assert len(runner.spawn_calls) == 1
+
+
+def test_background_keepalive_modulates_volume(tmp_path: Path) -> None:
+    audio_file = tmp_path / "keepalive.mp3"
+    audio_file.write_bytes(b"beep")
+    runner = FakeRunner({"mpg123"})
+    bluetooth = FakeBluetooth(connected=True)
+    calls = {"count": 0}
+
+    def fake_sleep(_seconds: float) -> None:
+        calls["count"] += 1
+        if calls["count"] >= 3:
+            service._modulator_stop.set()
+
+    service = BackgroundKeepAliveService(
+        runner=runner,
+        bluetooth=bluetooth,
+        audio_file=str(audio_file),
+        volume_percent=1,
+        loop=True,
+        nice_level=None,
+        volume_cycle_enabled=True,
+        volume_cycle_min_percent=1,
+        volume_cycle_max_percent=3,
+        volume_cycle_step_seconds=0.01,
+        sleep=fake_sleep,
+    )
+
+    service.resume_if_idle()
+    service._modulator_thread.join(timeout=0.2)
+
+    assert len(runner.spawn_calls) >= 2
+    assert service.is_modulating() is False

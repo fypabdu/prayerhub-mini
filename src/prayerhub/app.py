@@ -271,14 +271,7 @@ def _config_summary(config) -> dict:
 
 def _prewarm_duration_cache(duration_probe, audio: AudioConfig) -> None:
     logger = logging.getLogger("AudioDurationPrewarm")
-    paths = []
-    paths.append(_resolve_audio_path(audio.test_audio))
-    for name in ("fajr", "dhuhr", "asr", "maghrib", "isha"):
-        paths.append(_resolve_audio_path(getattr(audio.adhan, name)))
-    for item in audio.quran_schedule:
-        paths.append(_resolve_audio_path(item.file))
-    for name in ("sunrise", "sunset", "midnight", "tahajjud"):
-        paths.append(_resolve_audio_path(getattr(audio.notifications, name)))
+    paths = _collect_audio_paths(audio)
 
     seen = set()
     probed = 0
@@ -294,6 +287,56 @@ def _prewarm_duration_cache(duration_probe, audio: AudioConfig) -> None:
         except Exception as exc:
             logger.warning("Audio duration prewarm failed for %s: %s", path, exc)
     logger.info("Prewarm complete: %s files probed", probed)
+
+
+def _collect_audio_paths(audio: AudioConfig) -> list[Path]:
+    candidates = []
+    audio_data = _dataclass_to_plain(audio)
+    _collect_string_values(audio_data, candidates)
+
+    files: set[Path] = set()
+    dirs: set[Path] = set()
+    for value in candidates:
+        resolved = _resolve_audio_path(value)
+        if resolved.exists() and resolved.is_file():
+            files.add(resolved)
+            dirs.add(resolved.parent)
+
+    for folder in sorted(dirs):
+        try:
+            for item in folder.iterdir():
+                if item.is_file() and _is_audio_file(item):
+                    files.add(item)
+        except OSError:
+            continue
+    return sorted(files)
+
+
+def _dataclass_to_plain(obj):
+    if hasattr(obj, "__dataclass_fields__"):
+        return {key: _dataclass_to_plain(value) for key, value in vars(obj).items()}
+    if isinstance(obj, (list, tuple)):
+        return [_dataclass_to_plain(value) for value in obj]
+    if isinstance(obj, dict):
+        return {key: _dataclass_to_plain(value) for key, value in obj.items()}
+    return obj
+
+
+def _collect_string_values(data, values: list[str]) -> None:
+    if isinstance(data, str):
+        values.append(data)
+        return
+    if isinstance(data, list):
+        for item in data:
+            _collect_string_values(item, values)
+        return
+    if isinstance(data, dict):
+        for item in data.values():
+            _collect_string_values(item, values)
+
+
+def _is_audio_file(path: Path) -> bool:
+    return path.suffix.lower() in {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
 
 
 def _resolve_audio_path(path_str: str) -> Path:

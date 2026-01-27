@@ -253,6 +253,7 @@ def _audio_config(tmp_path: Path) -> AudioConfig:
     for name in [
         "test_beep.mp3",
         "connected.mp3",
+        "keepalive_low_freq.mp3",
         "adhan_fajr.mp3",
         "adhan_dhuhr.mp3",
         "adhan_asr.mp3",
@@ -320,6 +321,8 @@ def test_prewarm_duration_cache_probes_audio_files(
     call_set = {path.name for path in probe.calls}
     assert {
         "test_beep.mp3",
+        "connected.mp3",
+        "keepalive_low_freq.mp3",
         "adhan_fajr.mp3",
         "adhan_dhuhr.mp3",
         "adhan_asr.mp3",

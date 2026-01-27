@@ -82,7 +82,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 volume_cycle_step_seconds=config.audio.background_keepalive_volume_cycle_step_seconds,
             )
         player = AudioPlayer(runner, router, monitor=keepalive_service)
-        duration_probe = FfprobeDurationProbe(runner)
+        duration_probe = FfprobeDurationProbe(
+            runner,
+            timeout_seconds=config.audio.ffprobe_timeout_seconds,
+        )
         timeout_policy = PlaybackTimeoutPolicy(
             strategy=config.audio.playback_timeout_strategy,
             fallback_seconds=config.audio.playback_timeout_seconds,
@@ -240,6 +243,7 @@ def _config_summary(config) -> dict:
             "playback_timeout_seconds": config.audio.playback_timeout_seconds,
             "playback_timeout_strategy": config.audio.playback_timeout_strategy,
             "playback_timeout_buffer_seconds": config.audio.playback_timeout_buffer_seconds,
+            "ffprobe_timeout_seconds": config.audio.ffprobe_timeout_seconds,
         },
         "bluetooth": {
             "device_mac": config.bluetooth.device_mac,

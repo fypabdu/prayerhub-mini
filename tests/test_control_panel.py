@@ -299,6 +299,7 @@ audio:
   playback_timeout_seconds: 300
   playback_timeout_strategy: "fixed"
   playback_timeout_buffer_seconds: 5
+  ffprobe_timeout_seconds: 5
   adhan:
     fajr: "{audio_dir / 'adhan_fajr.mp3'}"
     dhuhr: "{audio_dir / 'adhan_dhuhr.mp3'}"
@@ -475,3 +476,47 @@ def test_config_save_restart_calls_runner(tmp_path: Path) -> None:
 
     assert resp.status_code == 200
     assert runner.calls
+
+
+def test_config_reboot_calls_runner(tmp_path: Path) -> None:
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    for name in [
+        "test.mp3",
+        "connected.mp3",
+        "keepalive.mp3",
+        "adhan_fajr.mp3",
+        "adhan_dhuhr.mp3",
+        "adhan_asr.mp3",
+        "adhan_maghrib.mp3",
+        "adhan_isha.mp3",
+        "quran.mp3",
+        "sunrise.mp3",
+        "sunset.mp3",
+        "midnight.mp3",
+        "tahajjud.mp3",
+    ]:
+        (audio_dir / name).write_bytes(b"beep")
+
+    config_path = tmp_path / "config.yml"
+    _write_config(config_path, audio_dir)
+
+    runner = FakeRunner()
+    server, _, _, _ = _make_app(config_path=config_path, command_runner=runner)
+    client = server.app.test_client()
+    client.post(
+        "/login",
+        data={"username": "admin", "password": "secret"},
+        follow_redirects=True,
+    )
+
+    resp = client.post(
+        "/config",
+        data={
+            "action": "reboot",
+        },
+        follow_redirects=True,
+    )
+
+    assert resp.status_code == 200
+    assert runner.calls == [["sudo", "-n", "systemctl", "reboot"]]

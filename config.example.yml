@@ -24,6 +24,7 @@ audio:
   playback_timeout_seconds: 300 # Set to 0 to disable timeout (not recommended).
   playback_timeout_strategy: "auto" # fixed or auto (advanced users only).
   playback_timeout_buffer_seconds: 5 # Extra seconds added when using auto.
+  ffprobe_timeout_seconds: 5 # Timeout for ffprobe duration check.
   adhan:
     fajr: "data/audio/adhan_fajr.mp3"
     dhuhr: "data/audio/adhan_dhuhr.mp3"

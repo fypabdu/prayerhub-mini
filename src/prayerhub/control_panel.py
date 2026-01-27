@@ -364,6 +364,7 @@ MAIN_TEMPLATE = """
         <div class="actions" style="margin-top:12px;">
           <button type="submit" name="action" value="save">Save</button>
           <button type="submit" name="action" value="save_restart" class="secondary">Save + Restart</button>
+          <button type="submit" name="action" value="reboot" class="secondary" onclick="return confirm('Reboot the device now?')">Reboot Device</button>
         </div>
       </form>
     </section>
@@ -584,22 +585,29 @@ class ControlPanelServer:
 
             if request.method == "POST":
                 action = request.form.get("action", "save")
-                data, error = _apply_config_form(data, request.form)
-                if error is None:
-                    error = _validate_config_data(config_path, data)
-                if error is None:
-                    try:
-                        _save_config_data(config_path, data)
-                        if action == "save_restart":
-                            restart_error = self._restart_service()
-                            if restart_error:
-                                error = restart_error
+                if action == "reboot":
+                    reboot_error = self._reboot_device()
+                    if reboot_error:
+                        error = reboot_error
+                    else:
+                        message = "Rebooting device."
+                else:
+                    data, error = _apply_config_form(data, request.form)
+                    if error is None:
+                        error = _validate_config_data(config_path, data)
+                    if error is None:
+                        try:
+                            _save_config_data(config_path, data)
+                            if action == "save_restart":
+                                restart_error = self._restart_service()
+                                if restart_error:
+                                    error = restart_error
+                                else:
+                                    message = "Saved and restarted."
                             else:
-                                message = "Saved and restarted."
-                        else:
-                            message = "Saved."
-                    except OSError as exc:
-                        error = f"Failed to save config: {exc}"
+                                message = "Saved."
+                        except OSError as exc:
+                            error = f"Failed to save config: {exc}"
 
             fields = _config_fields(data)
             quran_fields = _quran_form_fields(data)
@@ -717,6 +725,18 @@ class ControlPanelServer:
         if result.returncode != 0:
             self._logger.warning("Service restart failed: %s", result.stderr.strip())
             return "Restart failed. Check service permissions."
+        return None
+
+    def _reboot_device(self) -> Optional[str]:
+        if not self.command_runner:
+            return "Reboot unavailable."
+        result = self.command_runner.run(
+            ["sudo", "-n", "systemctl", "reboot"],
+            timeout=10,
+        )
+        if result.returncode != 0:
+            self._logger.warning("Device reboot failed: %s", result.stderr.strip())
+            return "Reboot failed. Check service permissions."
         return None
 
 
@@ -983,6 +1003,12 @@ def _config_field_definitions() -> list[dict]:
             "label": "Playback Timeout Buffer (sec)",
             "name": "audio_timeout_buffer",
             "path": ["audio", "playback_timeout_buffer_seconds"],
+            "type": "int",
+        },
+        {
+            "label": "FFprobe Timeout (sec)",
+            "name": "audio_ffprobe_timeout",
+            "path": ["audio", "ffprobe_timeout_seconds"],
             "type": "int",
         },
         {"label": "Adhan Fajr", "name": "adhan_fajr", "path": ["audio", "adhan", "fajr"], "type": "text"},

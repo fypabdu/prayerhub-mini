@@ -58,6 +58,7 @@ class AudioConfig:
     playback_timeout_seconds: int
     playback_timeout_strategy: str
     playback_timeout_buffer_seconds: int
+    ffprobe_timeout_seconds: int
 
 
 @dataclass(frozen=True)
@@ -288,6 +289,7 @@ class ConfigLoader:
             playback_timeout_buffer_seconds=int(
                 audio_data.get("playback_timeout_buffer_seconds", 5)
             ),
+            ffprobe_timeout_seconds=int(audio_data.get("ffprobe_timeout_seconds", 5)),
         )
         bluetooth = BluetoothConfig(
             device_mac=bluetooth_data["device_mac"],
@@ -362,6 +364,8 @@ class ConfigLoader:
             raise ConfigError("playback_timeout_seconds must be zero or greater")
         if audio.playback_timeout_buffer_seconds < 0:
             raise ConfigError("playback_timeout_buffer_seconds must be zero or greater")
+        if audio.ffprobe_timeout_seconds <= 0:
+            raise ConfigError("ffprobe_timeout_seconds must be greater than zero")
         if audio.playback_timeout_strategy not in {"fixed", "auto"}:
             raise ConfigError(
                 "playback_timeout_strategy must be one of: fixed, auto"

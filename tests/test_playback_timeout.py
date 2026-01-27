@@ -25,6 +25,19 @@ class TimeoutRunner:
         raise subprocess.TimeoutExpired(cmd="ffprobe", timeout=timeout)
 
 
+class CountingRunner:
+    def __init__(self, stdout: str = "12.5\n") -> None:
+        self.calls = 0
+        self.stdout = stdout
+
+    def which(self, _name: str) -> str | None:
+        return "/usr/bin/ffprobe"
+
+    def run(self, args, *, timeout):
+        self.calls += 1
+        return subprocess.CompletedProcess(args, 0, self.stdout, "")
+
+
 def test_auto_timeout_uses_duration_with_buffer() -> None:
     probe = FakeProbe(12.2)
     policy = PlaybackTimeoutPolicy(
@@ -88,3 +101,23 @@ def test_ffprobe_timeout_returns_none(tmp_path: Path) -> None:
     duration = probe.duration_seconds(tmp_path / "audio.mp3")
 
     assert duration is None
+
+
+def test_ffprobe_duration_cached_until_file_changes(tmp_path: Path) -> None:
+    audio_path = tmp_path / "audio.mp3"
+    audio_path.write_bytes(b"beep")
+    runner = CountingRunner(stdout="10.0\n")
+    probe = FfprobeDurationProbe(runner=runner)
+
+    first = probe.duration_seconds(audio_path)
+    second = probe.duration_seconds(audio_path)
+
+    assert first == 10.0
+    assert second == 10.0
+    assert runner.calls == 1
+
+    audio_path.write_bytes(b"beep-beep")
+    third = probe.duration_seconds(audio_path)
+
+    assert third == 10.0
+    assert runner.calls == 2

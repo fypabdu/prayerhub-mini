@@ -78,6 +78,7 @@ def _audio_config() -> AudioConfig:
         playback_timeout_seconds=300,
         playback_timeout_strategy="fixed",
         playback_timeout_buffer_seconds=5,
+        ffprobe_timeout_seconds=5,
     )
 
 

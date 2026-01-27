@@ -22,10 +22,23 @@ class FfprobeDurationProbe:
 
     def __post_init__(self) -> None:
         self._logger = logging.getLogger(self.__class__.__name__)
+        self._cache: dict[Path, tuple[tuple[int, int], float]] = {}
+
+    def _stat_key(self, path: Path) -> Optional[tuple[int, int]]:
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        return (stat.st_mtime_ns, stat.st_size)
 
     def duration_seconds(self, path: Path) -> Optional[float]:
         if not self.runner.which("ffprobe"):
             return None
+        stat_key = self._stat_key(path)
+        if stat_key is not None:
+            cached = self._cache.get(path)
+            if cached and cached[0] == stat_key:
+                return cached[1]
         try:
             result = self.runner.run(
                 [
@@ -58,6 +71,9 @@ class FfprobeDurationProbe:
             return None
         if duration <= 0:
             return None
+        stat_key = stat_key or self._stat_key(path)
+        if stat_key is not None:
+            self._cache[path] = (stat_key, duration)
         return duration
 
 

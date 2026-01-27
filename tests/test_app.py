@@ -40,6 +40,7 @@ audio:
   playback_timeout_seconds: 300
   playback_timeout_strategy: "fixed"
   playback_timeout_buffer_seconds: 5
+  ffprobe_timeout_seconds: 5
   adhan:
     fajr: "data/audio/adhan_fajr.mp3"
     dhuhr: "data/audio/adhan_dhuhr.mp3"

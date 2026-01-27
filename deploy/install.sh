@@ -56,6 +56,7 @@ if command -v systemctl >/dev/null 2>&1; then
   sudoers_file="/etc/sudoers.d/prayerhub"
   cat >"$sudoers_file" <<EOF
 ${service_user} ALL=NOPASSWD: /bin/systemctl restart prayerhub.service
+${service_user} ALL=NOPASSWD: /bin/systemctl reboot
 EOF
   chmod 0440 "$sudoers_file"
 fi

@@ -60,6 +60,7 @@ audio:
   playback_timeout_seconds: 300
   playback_timeout_strategy: "fixed"
   playback_timeout_buffer_seconds: 5
+  ffprobe_timeout_seconds: 5
   adhan:
     fajr: "data/audio/adhan_fajr.mp3"
     dhuhr: "data/audio/adhan_dhuhr.mp3"
@@ -148,6 +149,41 @@ def test_audio_timeout_defaults_when_missing(tmp_path: Path, monkeypatch: pytest
 
     assert config.audio.playback_timeout_strategy == "auto"
     assert config.audio.playback_timeout_buffer_seconds == 5
+
+
+def test_ffprobe_timeout_defaults_when_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    test_audio = tmp_path / "test_beep.mp3"
+    test_audio.write_bytes(b"beep")
+    _seed_audio_files(tmp_path)
+    config_text = _base_config(str(test_audio)).replace(
+        "  ffprobe_timeout_seconds: 5\n", ""
+    )
+    _write_yaml(tmp_path / "config.yml", config_text)
+
+    monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    config = ConfigLoader().load()
+
+    assert config.audio.ffprobe_timeout_seconds == 5
+
+
+def test_invalid_ffprobe_timeout_fails_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    test_audio = tmp_path / "test_beep.mp3"
+    test_audio.write_bytes(b"beep")
+    _seed_audio_files(tmp_path)
+    config_text = _base_config(str(test_audio)).replace(
+        "  ffprobe_timeout_seconds: 5",
+        "  ffprobe_timeout_seconds: 0",
+    )
+    _write_yaml(tmp_path / "config.yml", config_text)
+
+    monkeypatch.setenv("PRAYERHUB_CONFIG_DIR", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ConfigError):
+        ConfigLoader().load()
 
 
 def test_missing_test_audio_path_fails_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

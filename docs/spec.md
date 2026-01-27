@@ -1307,6 +1307,7 @@ Rules for every ticket:
 **Subtasks**
 1. Fix config save permissions and implement atomic writes for `/etc/prayerhub/config.yml`.
 2. Add a "Save + Restart" action that restarts the systemd service after save.
+2a. Add a "Reboot Device" action (auth-protected) that triggers `systemctl reboot`.
 3. Redesign `/` as a single-page dashboard with styled sections and minimal JS.
 4. Show today’s prayer times (API/cache) and highlight stale data when needed.
 5. Display a scrollable table of upcoming scheduled events (sorted by next run).
@@ -1318,7 +1319,31 @@ Rules for every ticket:
 - Keep dependencies light; prefer local CSS/JS.
 
 **Definition of Done**
-- Control panel is a polished SPA-style dashboard that supports save+restart, shows prayer times, upcoming events, and a usable log viewer.
+- Control panel is a polished SPA-style dashboard that supports save+restart and reboot, shows prayer times, upcoming events, and a usable log viewer.
+
+---
+
+### T39 - Cache audio duration probes in-memory
+**Estimate:** 25 min  
+**Depends on:** T11  
+**Context7 topics:**  
+- Python stdlib / caching patterns
+
+**TDD**
+- duration probe caches values for the same file
+- cache invalidates when the file changes (mtime/size)
+
+**Steps**
+1. Add an in-memory cache to the ffprobe duration probe.
+2. Key the cache by path + file metadata (mtime/size).
+3. Reuse cached duration to avoid repeated ffprobe calls.
+
+**Pitfalls**
+- Don’t cache invalid durations or failed probes.
+- Avoid caching when file metadata can’t be read.
+
+**Definition of Done**
+- Repeated duration lookups reuse cached values until the file changes.
 
 ---
 

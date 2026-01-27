@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from prayerhub.cache_store import CacheStore
-from prayerhub.config import ConfigError, ConfigLoader
+from prayerhub.config import AudioConfig, ConfigError, ConfigLoader
 from prayerhub.logging_utils import LoggerFactory
 from prayerhub.prayer_api import PrayerApiClient
 from prayerhub.prayer_times import PrayerTimeService
@@ -86,6 +86,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             runner,
             timeout_seconds=config.audio.ffprobe_timeout_seconds,
         )
+        if config.audio.playback_timeout_strategy == "auto":
+            _prewarm_duration_cache(duration_probe, config.audio)
         timeout_policy = PlaybackTimeoutPolicy(
             strategy=config.audio.playback_timeout_strategy,
             fallback_seconds=config.audio.playback_timeout_seconds,
@@ -265,6 +267,36 @@ def _config_summary(config) -> dict:
             "file_path": config.logging.file_path,
         },
     }
+
+
+def _prewarm_duration_cache(duration_probe, audio: AudioConfig) -> None:
+    paths = []
+    paths.append(_resolve_audio_path(audio.test_audio))
+    for name in ("fajr", "dhuhr", "asr", "maghrib", "isha"):
+        paths.append(_resolve_audio_path(getattr(audio.adhan, name)))
+    for item in audio.quran_schedule:
+        paths.append(_resolve_audio_path(item.file))
+    for name in ("sunrise", "sunset", "midnight", "tahajjud"):
+        paths.append(_resolve_audio_path(getattr(audio.notifications, name)))
+
+    seen = set()
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            duration_probe.duration_seconds(path)
+        except Exception as exc:
+            logging.getLogger("prewarm").warning(
+                "Audio duration prewarm failed for %s: %s", path, exc
+            )
+
+
+def _resolve_audio_path(path_str: str) -> Path:
+    path = Path(path_str)
+    if path.is_absolute():
+        return path
+    return Path.cwd() / path
 
 def _parse_args(argv: Optional[Iterable[str]]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PrayerHub Mini")

@@ -3,8 +3,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from prayerhub.app import _config_summary, main
-from prayerhub.config import ConfigLoader
+from prayerhub.app import _config_summary, _prewarm_duration_cache, main
+from prayerhub.config import (
+    AdhanAudio,
+    AudioConfig,
+    AudioVolumes,
+    ConfigLoader,
+    NotificationAudio,
+    QuranScheduleItem,
+)
 
 
 def _write_yaml(path: Path, content: str) -> None:
@@ -229,3 +236,95 @@ def test_config_summary_redacts_password_hash(tmp_path: Path, monkeypatch) -> No
 
     assert summary["control_panel"]["auth"] == {"username": "admin"}
     assert "password_hash" not in str(summary)
+
+
+class FakeDurationProbe:
+    def __init__(self) -> None:
+        self.calls: list[Path] = []
+
+    def duration_seconds(self, path: Path):
+        self.calls.append(path)
+        return 1.0
+
+
+def _audio_config(tmp_path: Path) -> AudioConfig:
+    audio_dir = tmp_path / "data" / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    for name in [
+        "test_beep.mp3",
+        "connected.mp3",
+        "adhan_fajr.mp3",
+        "adhan_dhuhr.mp3",
+        "adhan_asr.mp3",
+        "adhan_maghrib.mp3",
+        "adhan_isha.mp3",
+        "quran_morning.mp3",
+        "sunrise.mp3",
+        "sunset.mp3",
+        "midnight.mp3",
+        "tahajjud.mp3",
+    ]:
+        (audio_dir / name).write_bytes(b"beep")
+    return AudioConfig(
+        test_audio="data/audio/test_beep.mp3",
+        connected_tone="data/audio/connected.mp3",
+        background_keepalive_enabled=False,
+        background_keepalive_path="data/audio/keepalive_low_freq.mp3",
+        background_keepalive_volume_percent=1,
+        background_keepalive_loop=True,
+        background_keepalive_nice=10,
+        background_keepalive_volume_cycle_enabled=False,
+        background_keepalive_volume_cycle_min_percent=1,
+        background_keepalive_volume_cycle_max_percent=10,
+        background_keepalive_volume_cycle_step_seconds=1.0,
+        adhan=AdhanAudio(
+            fajr="data/audio/adhan_fajr.mp3",
+            dhuhr="data/audio/adhan_dhuhr.mp3",
+            asr="data/audio/adhan_asr.mp3",
+            maghrib="data/audio/adhan_maghrib.mp3",
+            isha="data/audio/adhan_isha.mp3",
+        ),
+        quran_schedule=(QuranScheduleItem(time="06:30", file="data/audio/quran_morning.mp3"),),
+        notifications=NotificationAudio(
+            sunrise="data/audio/sunrise.mp3",
+            sunset="data/audio/sunset.mp3",
+            midnight="data/audio/midnight.mp3",
+            tahajjud="data/audio/tahajjud.mp3",
+        ),
+        volumes=AudioVolumes(
+            master_percent=60,
+            adhan_percent=85,
+            fajr_adhan_percent=60,
+            quran_percent=55,
+            notification_percent=50,
+            test_percent=70,
+        ),
+        playback_timeout_seconds=300,
+        playback_timeout_strategy="auto",
+        playback_timeout_buffer_seconds=5,
+        ffprobe_timeout_seconds=5,
+    )
+
+
+def test_prewarm_duration_cache_probes_audio_files(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    audio = _audio_config(tmp_path)
+    probe = FakeDurationProbe()
+
+    _prewarm_duration_cache(probe, audio)
+
+    assert probe.calls
+    call_set = {path.name for path in probe.calls}
+    assert {
+        "test_beep.mp3",
+        "adhan_fajr.mp3",
+        "adhan_dhuhr.mp3",
+        "adhan_asr.mp3",
+        "adhan_maghrib.mp3",
+        "adhan_isha.mp3",
+        "quran_morning.mp3",
+        "sunrise.mp3",
+        "sunset.mp3",
+        "midnight.mp3",
+        "tahajjud.mp3",
+    }.issubset(call_set)

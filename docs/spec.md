@@ -1337,6 +1337,7 @@ Rules for every ticket:
 1. Add an in-memory cache to the ffprobe duration probe.
 2. Key the cache by path + file metadata (mtime/size).
 3. Reuse cached duration to avoid repeated ffprobe calls.
+4. Pre-warm the cache at startup by probing configured audio files once.
 
 **Pitfalls**
 - Don’t cache invalid durations or failed probes.

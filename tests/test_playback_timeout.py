@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
+import pytest
+
 from prayerhub.playback_timeout import PlaybackTimeoutPolicy
 from prayerhub.playback_timeout import FfprobeDurationProbe
 
@@ -121,3 +123,35 @@ def test_ffprobe_duration_cached_until_file_changes(tmp_path: Path) -> None:
 
     assert third == 10.0
     assert runner.calls == 2
+
+
+def test_ffprobe_logs_cache_activity(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    audio_path = tmp_path / "audio.mp3"
+    audio_path.write_bytes(b"beep")
+    runner = CountingRunner(stdout="10.0\n")
+    probe = FfprobeDurationProbe(runner=runner)
+
+    with caplog.at_level("INFO"):
+        probe.duration_seconds(audio_path)
+        probe.duration_seconds(audio_path)
+
+    assert "ffprobe cache miss" in caplog.text
+    assert "ffprobe cache hit" in caplog.text
+
+
+def test_timeout_policy_logs_resolution(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    audio_path = tmp_path / "audio.mp3"
+    audio_path.write_bytes(b"beep")
+    probe = FakeProbe(12.2)
+    policy = PlaybackTimeoutPolicy(
+        strategy="auto",
+        fallback_seconds=120,
+        buffer_seconds=5,
+        duration_probe=probe,
+    )
+
+    with caplog.at_level("INFO"):
+        timeout = policy.resolve(audio_path)
+
+    assert timeout == 18
+    assert "Playback timeout resolved" in caplog.text

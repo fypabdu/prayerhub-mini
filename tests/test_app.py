@@ -306,12 +306,15 @@ def _audio_config(tmp_path: Path) -> AudioConfig:
     )
 
 
-def test_prewarm_duration_cache_probes_audio_files(tmp_path: Path, monkeypatch) -> None:
+def test_prewarm_duration_cache_probes_audio_files(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
     monkeypatch.chdir(tmp_path)
     audio = _audio_config(tmp_path)
     probe = FakeDurationProbe()
 
-    _prewarm_duration_cache(probe, audio)
+    with caplog.at_level("INFO"):
+        _prewarm_duration_cache(probe, audio)
 
     assert probe.calls
     call_set = {path.name for path in probe.calls}
@@ -328,3 +331,5 @@ def test_prewarm_duration_cache_probes_audio_files(tmp_path: Path, monkeypatch) 
         "midnight.mp3",
         "tahajjud.mp3",
     }.issubset(call_set)
+    assert "Prewarming audio durations" in caplog.text
+    assert "Prewarm complete" in caplog.text

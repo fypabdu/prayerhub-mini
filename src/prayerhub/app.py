@@ -270,6 +270,7 @@ def _config_summary(config) -> dict:
 
 
 def _prewarm_duration_cache(duration_probe, audio: AudioConfig) -> None:
+    logger = logging.getLogger("AudioDurationPrewarm")
     paths = []
     paths.append(_resolve_audio_path(audio.test_audio))
     for name in ("fajr", "dhuhr", "asr", "maghrib", "isha"):
@@ -280,16 +281,19 @@ def _prewarm_duration_cache(duration_probe, audio: AudioConfig) -> None:
         paths.append(_resolve_audio_path(getattr(audio.notifications, name)))
 
     seen = set()
+    probed = 0
+    logger.info("Prewarming audio durations for %s files", len(paths))
     for path in paths:
         if path in seen:
             continue
         seen.add(path)
         try:
+            logger.info("Prewarm duration for %s", path)
             duration_probe.duration_seconds(path)
+            probed += 1
         except Exception as exc:
-            logging.getLogger("prewarm").warning(
-                "Audio duration prewarm failed for %s: %s", path, exc
-            )
+            logger.warning("Audio duration prewarm failed for %s: %s", path, exc)
+    logger.info("Prewarm complete: %s files probed", probed)
 
 
 def _resolve_audio_path(path_str: str) -> Path:

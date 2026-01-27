@@ -32,14 +32,23 @@ class FfprobeDurationProbe:
         return (stat.st_mtime_ns, stat.st_size)
 
     def duration_seconds(self, path: Path) -> Optional[float]:
+        self._logger.info("ffprobe requested for %s", path)
         if not self.runner.which("ffprobe"):
+            self._logger.warning("ffprobe unavailable; skipping %s", path)
             return None
         stat_key = self._stat_key(path)
         if stat_key is not None:
             cached = self._cache.get(path)
             if cached and cached[0] == stat_key:
+                self._logger.info("ffprobe cache hit for %s", path)
                 return cached[1]
+            self._logger.info("ffprobe cache miss for %s", path)
+        else:
+            self._logger.warning("ffprobe cache disabled; stat failed for %s", path)
         try:
+            self._logger.info(
+                "ffprobe running for %s (timeout=%ss)", path, self.timeout_seconds
+            )
             result = self.runner.run(
                 [
                     "ffprobe",
@@ -70,10 +79,13 @@ class FfprobeDurationProbe:
             self._logger.warning("Invalid ffprobe duration for %s: %s", path, raw)
             return None
         if duration <= 0:
+            self._logger.warning("ffprobe returned non-positive duration for %s", path)
             return None
+        self._logger.info("ffprobe duration for %s = %ss", path, duration)
         stat_key = stat_key or self._stat_key(path)
         if stat_key is not None:
             self._cache[path] = (stat_key, duration)
+            self._logger.info("ffprobe cached duration for %s", path)
         return duration
 
 
@@ -90,6 +102,11 @@ class PlaybackTimeoutPolicy:
     def resolve(self, path: Path) -> Optional[int]:
         fallback = None if self.fallback_seconds == 0 else self.fallback_seconds
         if self.strategy != "auto":
+            self._logger.info(
+                "Playback timeout resolved for %s using fixed strategy: %s",
+                path,
+                fallback,
+            )
             return fallback
 
         if self.duration_probe is None:
@@ -111,4 +128,11 @@ class PlaybackTimeoutPolicy:
         timeout = math.ceil(duration + self.buffer_seconds)
         if timeout <= 0:
             return fallback
+        self._logger.info(
+            "Playback timeout resolved for %s using auto strategy: %s (duration=%s buffer=%s)",
+            path,
+            timeout,
+            duration,
+            self.buffer_seconds,
+        )
         return timeout

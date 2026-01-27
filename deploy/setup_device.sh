@@ -64,13 +64,13 @@ prompt_password() {
   local pass1 pass2
   while true; do
     read -r -s -p "${message}: " pass1
-    echo ""
+    printf '\n' >&2
     if [ -z "$pass1" ]; then
       echo "Password cannot be empty."
       continue
     fi
     read -r -s -p "Confirm password: " pass2
-    echo ""
+    printf '\n' >&2
     if [ "$pass1" = "$pass2" ]; then
       echo "$pass1"
       return 0
